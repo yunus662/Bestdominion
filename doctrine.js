@@ -1,3 +1,4 @@
+import { logEvent } from "./notification.js";
 export const Doctrines = {
   SHOCK_AND_AWE: {
     name: "Shock and Awe",

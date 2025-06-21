@@ -2,29 +2,118 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Grand Strategy Game</title>
-  <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <title>Conqueror Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #050c14;
+      font-family: 'Share Tech Mono', monospace;
+      color: #00ffcc;
+      overflow: hidden;
+    }
+
+    #loading-screen {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, #0a0f1a 0%, #050c14 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    #loading-screen h1 {
+      font-size: 2em;
+      margin-bottom: 0.5em;
+      color: #00ffd0;
+      text-align: center;
+    }
+
+    #loading-screen .pulse {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #00ffcc;
+      animation: pulse 1s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.5); opacity: 1; }
+    }
+
+    #game-root {
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+
+    #solo-warning {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #ff004420;
+      padding: 0.8em 1em;
+      border: 1px solid #ff0044aa;
+      color: #ff6688;
+      font-size: 0.9em;
+      border-radius: 8px;
+    }
+  </style>
 </head>
 <body>
-  <div id="map"></div>
-  <div id="infoBox" class="info-box">🌍 Loading...</div>
-  <img id="unit1" class="unit" src="unit-icon.png" draggable="true" />
+  <div id="loading-screen">
+    <h1>🛰 Launching Conqueror Engine<br/>Establishing Tactical Uplink...</h1>
+    <div class="pulse"></div>
+  </div>
 
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <div id="game-root">
+    <canvas id="game-canvas"></canvas>
+    <!-- Other interface layers may render here -->
+  </div>
 
-  <!-- All Modules -->
-  <script type="module" src="units.js"></script>
-  <script type="module" src="doctrine.js"></script>
-  <script type="module" src="combat.js"></script>
-  <script type="module" src="government.js"></script>
-  <script type="module" src="economy.js"></script>
-  <script type="module" src="diplomacy.js"></script>
-  <script type="module" src="survey.js"></script>
-  <script type="module" src="notifications.js"></script>
-  <script type="module" src="cities-global.js"></script>
-  <script type="module" src="ai.js"></script>
-  <script type="module" src="main.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    let lobby = params.get("lobby");
+
+    if (!lobby) {
+      lobby = "ROOM-0";
+      console.warn("⚠ No lobby code detected. Defaulting to ROOM-0 (Solo Mode).");
+      const soloBanner = document.createElement("div");
+      soloBanner.id = "solo-warning";
+      soloBanner.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
+      document.body.appendChild(soloBanner);
+    }
+
+    const socket = io();
+
+    socket.on("connect", () => {
+      console.log(`🛰 Connected to server as ${socket.id}`);
+      socket.emit("join-lobby", lobby);
+    });
+
+    socket.on("map-update", (data) => {
+      console.log("📦 Map update received:", data);
+      if (typeof window.handleMapUpdate === 'function') {
+        window.handleMapUpdate(data);
+      }
+    });
+
+    window.socket = socket;
+    window.lobbyCode = lobby;
+
+    import('./engine.js').then(() => {
+      document.getElementById("loading-screen").style.display = "none";
+      document.getElementById("game-root").style.display = "block";
+    }).catch(err => {
+      console.error("❌ Failed to load engine.js:", err);
+    });
+  </script>
 </body>
 </html>
+
