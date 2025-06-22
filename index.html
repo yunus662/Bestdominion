@@ -15,7 +15,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
 
   <style>
-    /* Fallback inline styles – ensures basic layout on load */
+    /* Inline fallback styles – ensures basic layout on load */
     html, body {
       margin: 0;
       height: 100%;
@@ -37,7 +37,7 @@
   </div>
   
   <!-- Game Root: Contains the Map -->
-  <div id="game-root">
+  <div id="game-root" style="display:none;">
     <div id="map"></div>
   </div>
   
@@ -50,11 +50,11 @@
   <!-- Main Script -->
   <script type="module">
     console.log("Index.html: Starting up...");
-    
-    // Import Leaflet module from the libs folder
+
+    // Import Leaflet module from the libs folder.
     import * as L from "./libs/leaflet-src.esm.js";
     console.log("Leaflet module loaded.");
-
+    
     // Setup lobby code from URL parameters.
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
@@ -67,7 +67,7 @@
       document.body.appendChild(soloWarning);
     }
     
-    // Establish Socket.IO connection (adjust URL as needed)
+    // Establish Socket.IO connection.
     const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
     socket.on("connect", () => {
       console.log(`Socket.IO: Connected as ${socket.id}`);
@@ -82,7 +82,7 @@
     window.socket = socket;
     window.lobbyCode = lobby;
     
-    // Fallback: Initialize a basic Leaflet map if the game engine doesn't
+    // Fallback: Initialize a basic Leaflet map if the game engine doesn't initialize one.
     function initMapFallback() {
       console.log("Initializing fallback map.");
       const map = L.map("map").setView([51.505, -0.09], 13);
@@ -93,24 +93,46 @@
       window.leafletMap = map;
     }
     
-    // Load the main game engine.
-    // In this version, we load the engine compiled from C++ (game_engine.cpp)
-    // which has been compiled (for example, via Emscripten) to generate game_engine.js.
-    import("./game_engine.js").then(() => {
-      console.log("game_engine.js loaded successfully.");
-      document.getElementById("loading-screen").style.display = "none";
-      document.getElementById("game-root").style.display = "block";
-      // Ensure the map is initialized.
-      if (!window.leafletMap) {
+    // Load and instantiate the main game engine WASM module compiled from game_engine.cpp.
+    // Ensure that your build process outputs a "game_engine.wasm" file.
+    fetch("./game_engine.wasm")
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch game_engine.wasm: ${response.statusText}`);
+        }
+        return WebAssembly.instantiateStreaming(response, {
+          // Provide any necessary imports here. For example:
+          env: {
+            // Emscripten or custom functions can be defined here.
+            abort: () => console.error("WASM abort called!")
+          }
+        });
+      })
+      .then(obj => {
+        console.log("game_engine.wasm loaded successfully.");
+        // Assuming the WASM module exports a "main" function to initialize the game engine.
+        if (obj.instance.exports.main) {
+          obj.instance.exports.main();
+        } else {
+          console.warn("No main() export found in game_engine.wasm.");
+        }
+        // Hide the loading screen and display the game.
+        document.getElementById("loading-screen").style.display = "none";
+        document.getElementById("game-root").style.display = "block";
+        // Ensure the map is initialized—fallback if necessary.
+        if (!window.leafletMap) {
+          initMapFallback();
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load game_engine.wasm:", err);
+        document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
+        document.getElementById("game-root").style.display = "block";
         initMapFallback();
-      }
-    }).catch(err => {
-      console.error("Failed to load game_engine.js:", err);
-      document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
-      document.getElementById("game-root").style.display = "block";
-      initMapFallback();
-    });
+      });
   </script>
+  
+  <!-- Optional: Additional game loader module -->
   <script type="module" src="./game-loader.js"></script>
 </body>
 </html>
