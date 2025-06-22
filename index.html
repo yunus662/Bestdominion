@@ -6,16 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- Load Leaflet CSS from CDN -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
-  <!-- Load your external style.css -->
+  <!-- Load external style.css -->
   <link rel="stylesheet" href="style.css" />
   
   <!-- Load Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-
+  
   <style>
-    /* Fallback inline styles – these are kept so the loading screen, map container, etc. display correctly. */
+    /* Inline fallback styles if needed */
     html, body {
       margin: 0;
       height: 100%;
@@ -24,65 +24,16 @@
       color: #00ffcc;
       overflow: hidden;
     }
-    /* Loading Screen (also defined in style.css for further styling) */
-    #loading-screen {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse at center, #0a0f1a 0%, #050c14 100%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-    }
-    #loading-screen h1 {
-      font-size: 2em;
-      margin-bottom: 0.5em;
-      color: #00ffd0;
-      text-align: center;
-    }
-    #loading-screen .pulse {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #00ffcc;
-      animation: pulse 1s infinite ease-in-out;
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 0.5; }
-      50% { transform: scale(1.5); opacity: 1; }
-    }
-    /* Solo Mode Warning */
-    #solo-warning {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      background: #ff004420;
-      padding: 0.8em 1em;
-      border: 1px solid #ff0044aa;
-      color: #ff6688;
-      font-size: 0.9em;
-      border-radius: 8px;
-      z-index: 10000;
-    }
-    /* Game Root Container */
-    #game-root {
-      width: 100%;
-      height: 100%;
-      display: none;
-    }
-    /* Map Container */
-    #map {
-      width: 100%;
-      height: 100%;
-    }
   </style>
 </head>
 <body>
-  <!-- Loading Screen -->
+  <!-- Professional Loading Screen -->
   <div id="loading-screen">
-    <h1>🛰 Launching Conqueror Engine<br/>Establishing Tactical Uplink...</h1>
-    <div class="pulse"></div>
+    <div class="loading-content">
+      <h1>Conqueror Engine</h1>
+      <p>Initializing Tactical Network...</p>
+      <div class="spinner"></div>
+    </div>
   </div>
   
   <!-- Game Root: Contains the Map -->
@@ -90,7 +41,7 @@
     <div id="map"></div>
   </div>
   
-  <!-- Notifications -->
+  <!-- Notifications Container -->
   <div id="notification"></div>
   
   <!-- Socket.IO (from CDN) -->
@@ -100,11 +51,11 @@
   <script type="module">
     console.log("Index.html: Starting up...");
     
-    // Import local Leaflet ES module from the libs folder
+    // Import Leaflet module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
     console.log("Leaflet module loaded.");
 
-    // Setup lobby code
+    // Setup lobby code from URL parameters.
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
     if (!lobby) {
@@ -131,7 +82,7 @@
     window.socket = socket;
     window.lobbyCode = lobby;
     
-    // Function to initialize the map (fallback if engine doesn't initialize it)
+    // Fallback map initialization in case engine.js does not initialize the map.
     function initMapFallback() {
       console.log("Initializing fallback map.");
       const map = L.map("map").setView([51.505, -0.09], 13);
@@ -142,19 +93,17 @@
       window.leafletMap = map;
     }
     
-    // Try to load engine.js
+    // Load the engine module.
     import("./engine.js").then(() => {
       console.log("engine.js loaded successfully.");
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
-      // In case engine.js did not initialize the map, ensure one is available.
       if (!window.leafletMap) {
         initMapFallback();
       }
     }).catch(err => {
       console.error("Failed to load engine.js:", err);
       document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
-      // As a fallback, still initialize the map so something appears:
       document.getElementById("game-root").style.display = "block";
       initMapFallback();
     });
