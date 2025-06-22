@@ -1,4 +1,4 @@
-
+import cities from "./cities.js";
 
 /** Tiers and rules */
 const cityRules = {
