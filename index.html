@@ -11,7 +11,7 @@
   <!-- Load external style.css file -->
   <link rel="stylesheet" href="style.css" />
   
-  <!-- Google Fonts -->
+  <!-- Load Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   
   <style>
@@ -98,9 +98,9 @@
   <!-- Socket.IO (from CDN) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   
-  <!-- Use Local Leaflet Module + Engine Integration -->
+  <!-- Main Script: Local Leaflet module & engine.js integration remain unchanged -->
   <script type="module">
-    // Import local Leaflet ES module from the libs folder
+    // Import the local Leaflet ES module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
 
     // Retrieve lobby information from URL parameters
@@ -115,7 +115,7 @@
       document.body.appendChild(soloWarning);
     }
     
-    // Establish Socket.IO connection (adjust URL as necessary)
+    // Establish Socket.IO connection (adjust the URL as needed)
     const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
     socket.on("connect", () => {
       console.log(`🛰 Connected as ${socket.id}`);
@@ -130,21 +130,10 @@
     window.socket = socket;
     window.lobbyCode = lobby;
 
-    // Initialize the Leaflet map
-    function initMap() {
-      const map = L.map("map").setView([51.505, -0.09], 13);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "© OpenStreetMap"
-      }).addTo(map);
-      window.leafletMap = map;
-    }
-
-    // Load engine.js then initialize the map
+    // Load engine.js, then hide the loading screen and show game content
     import("./engine.js").then(() => {
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
-      initMap();
     }).catch(err => {
       console.error("❌ Failed to load engine.js:", err);
     });
