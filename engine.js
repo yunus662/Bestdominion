@@ -11,6 +11,7 @@ import { economyManager } from "./econ-fixed.js";
 import { allUnitsAI } from "./ai.js";
 import { discoverResources } from "./survey.js";
 import { buildings } from "./buildings.js";
+import cities from "./cities.js";
 import {
   initCountrySystem,
   upgradeInfrastructure,
