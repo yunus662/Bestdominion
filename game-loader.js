@@ -1,7 +1,6 @@
 // game-loader.js
 
 // --- Do not modify these imports ---
-import * as L from "https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js";
 import { Doctrines } from "./doctrine.js";
 import { Governments } from "./government.js";
 import { logEvent } from "./notification.js";
