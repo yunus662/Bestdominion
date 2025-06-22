@@ -1,4 +1,11 @@
-import cities from "./data/cities.js";
+fetch('./cities.json')
+  .then(response => response.json())
+  .then(cities => {
+    console.log("Loaded cities:", cities);
+    // Use the cities data here
+  })
+  .catch(err => console.error("Error loading cities:", err));
+
 
 /** Tiers and rules */
 const cityRules = {
