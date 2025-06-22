@@ -1006,5 +1006,20 @@ export default [
       { "name": "Vatican City", "lat": 41.9029, "lng": 12.4534 }
     ]
   },
+  {
+    "name": "Somalia",
+    "code": "SO",
+    "cities": [
+      { "name": "Mogadishu",  "lat": 2.046934,  "lng": 45.318162 },
+      { "name": "Hargeisa",   "lat": 9.562500,  "lng": 44.077500 },
+      { "name": "Bosaso",     "lat": 11.286,    "lng": 49.186 },
+      { "name": "Kismayo",    "lat": 0.358,     "lng": 42.561 },
+      { "name": "Baidoa",     "lat": 3.114,     "lng": 43.642 },
+      { "name": "Galkayo",    "lat": 6.750,     "lng": 47.433 },
+      { "name": "Beledweyne", "lat": 4.097,     "lng": 45.477 },
+      { "name": "Berbera",    "lat": 10.430,    "lng": 45.000 }
+    ]
+  }
 ];
+    
 
