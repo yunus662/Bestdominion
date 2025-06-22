@@ -5,14 +5,9 @@
   <title>Conqueror Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   
-  <!-- Load Leaflet CSS from the official CDN -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
-    integrity="sha256-sA+pjfYGg7bZOh1eTV6sy4AdkVQUPrW1L8O0w2xmN0o="
-    crossorigin=""
-  />
-
+  <!-- Load Leaflet CSS from the official CDN without crossorigin -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   
   <style>
@@ -24,7 +19,7 @@
       color: #00ffcc;
       overflow: hidden;
     }
-
+    
     /* Loading Screen */
     #loading-screen {
       position: absolute;
@@ -53,7 +48,7 @@
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.5); opacity: 1; }
     }
-
+    
     /* Solo Mode Warning */
     #solo-warning {
       position: absolute;
@@ -66,14 +61,14 @@
       font-size: 0.9em;
       border-radius: 8px;
     }
-
+    
     /* Game Root Container */
     #game-root {
       width: 100%;
       height: 100%;
       display: none;
     }
-
+    
     /* Map Container */
     #map {
       width: 100%;
@@ -87,24 +82,24 @@
     <h1>🛰 Launching Conqueror Engine<br/>Establishing Tactical Uplink...</h1>
     <div class="pulse"></div>
   </div>
-
+  
   <!-- Game Root: Contains the Map -->
   <div id="game-root">
     <div id="map"></div>
   </div>
-
-  <!-- Notification Area -->
+  
+  <!-- Notifications -->
   <div id="notification"></div>
-
-  <!-- Socket.IO Library -->
+  
+  <!-- Socket.IO (from CDN) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   
-  <!-- Main Script using ES Modules -->
+  <!-- Use local Leaflet module + engine integration -->
   <script type="module">
     // Import local Leaflet ES module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
 
-    // Read lobby parameter from URL
+    // Retrieve lobby information from URL parameters
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
     if (!lobby) {
@@ -115,8 +110,8 @@
       soloWarning.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
       document.body.appendChild(soloWarning);
     }
-
-    // Set up your Socket.IO connection (update the URL as needed)
+    
+    // Establish Socket.IO connection (adjust URL as necessary)
     const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
     socket.on("connect", () => {
       console.log(`🛰 Connected as ${socket.id}`);
@@ -131,7 +126,7 @@
     window.socket = socket;
     window.lobbyCode = lobby;
 
-    // Function to initialize and display the Leaflet Map
+    // Initialize the Leaflet map
     function initMap() {
       const map = L.map("map").setView([51.505, -0.09], 13);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -141,7 +136,7 @@
       window.leafletMap = map;
     }
 
-    // Load the engine and then initialize the map
+    // Load engine.js then initialize the map
     import("./engine.js").then(() => {
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
