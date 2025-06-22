@@ -4,7 +4,15 @@
   <meta charset="UTF-8" />
   <title>Conqueror Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+    integrity="sha256-sA+pjfYGg7bZOh1eTV6sy4AdkVQUPrW1L8O0w2xmN0o="
+    crossorigin=""
+  />
+  
   <style>
     html, body {
       margin: 0;
@@ -14,7 +22,7 @@
       color: #00ffcc;
       overflow: hidden;
     }
-
+    /* Loading Screen */
     #loading-screen {
       position: absolute;
       inset: 0;
@@ -25,14 +33,12 @@
       justify-content: center;
       z-index: 999;
     }
-
     #loading-screen h1 {
       font-size: 2em;
       margin-bottom: 0.5em;
       color: #00ffd0;
       text-align: center;
     }
-
     #loading-screen .pulse {
       width: 14px;
       height: 14px;
@@ -40,18 +46,25 @@
       background: #00ffcc;
       animation: pulse 1s infinite ease-in-out;
     }
-
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.5); opacity: 1; }
     }
 
+    /* Game Root – full screen container */
     #game-root {
       width: 100%;
       height: 100%;
       display: none;
     }
-
+    
+    /* Leaflet Map Container */
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    
+    /* Solo Mode Warning */
     #solo-warning {
       position: absolute;
       top: 12px;
@@ -66,21 +79,33 @@
   </style>
 </head>
 <body>
+
+  <!-- Loading Screen -->
   <div id="loading-screen">
     <h1>🛰 Launching Conqueror Engine<br/>Establishing Tactical Uplink...</h1>
     <div class="pulse"></div>
   </div>
 
+  <!-- Game Root: now contains a Leaflet map container -->
   <div id="game-root">
-    <canvas id="game-canvas"></canvas>
-    <!-- Other interface layers may render here -->
+    <div id="map"></div>
   </div>
 
+  <!-- Notification Area -->
   <div id="notification"></div>
 
-  
+  <!-- Socket.IO -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
+    integrity="sha256-oCzPv4mxnM85I7FjGbE3P6ZOl7sH1hzog2y0Wa1PC7o="
+    crossorigin=""
+  ></script>
+
   <script type="module">
+    // Retrieve lobby code from URL parameters
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
 
@@ -93,9 +118,8 @@
       document.body.appendChild(soloBanner);
     }
 
-    const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/"); // ✅ replace with your real CodeSandbox domain
-
-
+    // Initialize socket connection (update URL as needed)
+    const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
     socket.on("connect", () => {
       console.log(`🛰 Connected to server as ${socket.id}`);
       socket.emit("join-lobby", lobby);
@@ -111,13 +135,29 @@
     window.socket = socket;
     window.lobbyCode = lobby;
 
+    // Initialize Leaflet Map
+    function initMap() {
+      // Create the map in the 'map' container element, set initial view
+      const map = L.map('map').setView([51.505, -0.09], 13);
+      // Add the standard OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+      // Expose the map globally if needed
+      window.leafletMap = map;
+    }
+
+    // Load the engine file, then initialize the map
     import('./engine.js').then(() => {
+      // Once the engine is loaded, hide the loading screen
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
+      // Initialize the Leaflet map
+      initMap();
     }).catch(err => {
       console.error("❌ Failed to load engine.js:", err);
     });
   </script>
 </body>
 </html>
-
