@@ -94,15 +94,15 @@
     }
     
     // Load the engine module.
-    import("./engine.js").then(() => {
-      console.log("engine.js loaded successfully.");
+    import("./game_engine.cpp").then(() => {
+      console.log("game_engine.cpp loaded successfully.");
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
       if (!window.leafletMap) {
         initMapFallback();
       }
     }).catch(err => {
-      console.error("Failed to load engine.js:", err);
+      console.error("Failed to load game_engine.cpp:", err);
       document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
       document.getElementById("game-root").style.display = "block";
       initMapFallback();
