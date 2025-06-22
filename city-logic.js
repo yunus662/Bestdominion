@@ -4,7 +4,7 @@ fetch('./data/cities.json')
     console.log("Loaded cities:", cities);
     // Use the cities data here
   })
-  .catch(err => console.error("Error loading cities:", err));
+  
 
 
 /** Tiers and rules */
