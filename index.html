@@ -4,17 +4,18 @@
   <meta charset="UTF-8" />
   <title>Conqueror Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  
-  <!-- Load Leaflet CSS from the official CDN -->
+
+  <!-- Load Leaflet CSS from CDN -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
   
-  <!-- Load external style.css file -->
+  <!-- Load your external style.css -->
   <link rel="stylesheet" href="style.css" />
   
   <!-- Load Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-  
+
   <style>
+    /* Fallback inline styles – these are kept so the loading screen, map container, etc. display correctly. */
     html, body {
       margin: 0;
       height: 100%;
@@ -23,8 +24,7 @@
       color: #00ffcc;
       overflow: hidden;
     }
-    
-    /* Loading Screen */
+    /* Loading Screen (also defined in style.css for further styling) */
     #loading-screen {
       position: absolute;
       inset: 0;
@@ -52,7 +52,6 @@
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.5); opacity: 1; }
     }
-    
     /* Solo Mode Warning */
     #solo-warning {
       position: absolute;
@@ -64,15 +63,14 @@
       color: #ff6688;
       font-size: 0.9em;
       border-radius: 8px;
+      z-index: 10000;
     }
-    
     /* Game Root Container */
     #game-root {
       width: 100%;
       height: 100%;
       display: none;
     }
-    
     /* Map Container */
     #map {
       width: 100%;
@@ -98,44 +96,67 @@
   <!-- Socket.IO (from CDN) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   
-  <!-- Main Script: Local Leaflet module & engine.js integration remain unchanged -->
+  <!-- Main Script -->
   <script type="module">
-    // Import the local Leaflet ES module from the libs folder
+    console.log("Index.html: Starting up...");
+    
+    // Import local Leaflet ES module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
+    console.log("Leaflet module loaded.");
 
-    // Retrieve lobby information from URL parameters
+    // Setup lobby code
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
     if (!lobby) {
       lobby = "ROOM-0";
-      console.warn("⚠ No lobby code detected. Defaulting to ROOM-0 (Solo Mode).");
+      console.warn("No lobby code detected. Defaulting to ROOM-0 (Solo Mode).");
       const soloWarning = document.createElement("div");
       soloWarning.id = "solo-warning";
       soloWarning.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
       document.body.appendChild(soloWarning);
     }
     
-    // Establish Socket.IO connection (adjust the URL as needed)
+    // Establish Socket.IO connection (adjust URL as needed)
     const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
     socket.on("connect", () => {
-      console.log(`🛰 Connected as ${socket.id}`);
+      console.log(`Socket.IO: Connected as ${socket.id}`);
       socket.emit("join-lobby", lobby);
     });
     socket.on("map-update", (data) => {
-      console.log("📦 Map update received:", data);
+      console.log("Map update received:", data);
       if (typeof window.handleMapUpdate === "function") {
         window.handleMapUpdate(data);
       }
     });
     window.socket = socket;
     window.lobbyCode = lobby;
-
-    // Load engine.js, then hide the loading screen and show game content
+    
+    // Function to initialize the map (fallback if engine doesn't initialize it)
+    function initMapFallback() {
+      console.log("Initializing fallback map.");
+      const map = L.map("map").setView([51.505, -0.09], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap"
+      }).addTo(map);
+      window.leafletMap = map;
+    }
+    
+    // Try to load engine.js
     import("./engine.js").then(() => {
+      console.log("engine.js loaded successfully.");
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
+      // In case engine.js did not initialize the map, ensure one is available.
+      if (!window.leafletMap) {
+        initMapFallback();
+      }
     }).catch(err => {
-      console.error("❌ Failed to load engine.js:", err);
+      console.error("Failed to load engine.js:", err);
+      document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
+      // As a fallback, still initialize the map so something appears:
+      document.getElementById("game-root").style.display = "block";
+      initMapFallback();
     });
   </script>
 </body>
