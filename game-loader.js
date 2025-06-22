@@ -73,11 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
   (async function() {
     console.log("game-loader.js: Starting initialization...");
 
-    // --- Initialize the Leaflet map in the #map container (make sure index.html contains a <div id="map"></div>)
-    const map = L.map("map").setView([0, 0], 2);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors"
-    }).addTo(map);
+   
 
     // --- Load country GeoJSON data (for nation selection)
     async function loadCountryGeoData() {
