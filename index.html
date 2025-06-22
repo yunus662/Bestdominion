@@ -8,14 +8,14 @@
   <!-- Load Leaflet CSS from CDN -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
-  <!-- Load external style.css -->
+  <!-- Load your external style.css -->
   <link rel="stylesheet" href="style.css" />
   
   <!-- Load Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-  
+
   <style>
-    /* Inline fallback styles if needed */
+    /* Fallback inline styles – ensures basic layout on load */
     html, body {
       margin: 0;
       height: 100%;
@@ -82,7 +82,7 @@
     window.socket = socket;
     window.lobbyCode = lobby;
     
-    // Fallback map initialization in case engine.js does not initialize the map.
+    // Fallback: Initialize a basic Leaflet map if the game engine doesn't
     function initMapFallback() {
       console.log("Initializing fallback map.");
       const map = L.map("map").setView([51.505, -0.09], 13);
@@ -93,16 +93,19 @@
       window.leafletMap = map;
     }
     
-    // Load the engine module.
-    import("./game_engine.cpp").then(() => {
-      console.log("game_engine.cpp loaded successfully.");
+    // Load the main game engine.
+    // In this version, we load the engine compiled from C++ (game_engine.cpp)
+    // which has been compiled (for example, via Emscripten) to generate game_engine.js.
+    import("./game_engine.js").then(() => {
+      console.log("game_engine.js loaded successfully.");
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
+      // Ensure the map is initialized.
       if (!window.leafletMap) {
         initMapFallback();
       }
     }).catch(err => {
-      console.error("Failed to load game_engine.cpp:", err);
+      console.error("Failed to load game_engine.js:", err);
       document.getElementById("loading-screen").innerHTML = "<h1>Error loading game!</h1><p>Please check the console.</p>";
       document.getElementById("game-root").style.display = "block";
       initMapFallback();
