@@ -1,0 +1,16 @@
+[
+  {
+    "lobbyName": "Battle of the North",
+    "startTime": "2025-07-01T14:00:00Z",
+    "inGameYear": "2050",
+    "playersCount": 5,
+    "id": "lobby1"
+  },
+  {
+    "lobbyName": "Southern Assault",
+    "startTime": "2025-07-02T16:00:00Z",
+    "inGameYear": "2051",
+    "playersCount": 3,
+    "id": "lobby2"
+  }
+]
