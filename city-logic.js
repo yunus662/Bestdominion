@@ -1,4 +1,4 @@
-fetch('./cities.json')
+fetch('./data/cities.json')
   .then(response => response.json())
   .then(cities => {
     console.log("Loaded cities:", cities);
