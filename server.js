@@ -1,4 +1,4 @@
-// server.js (Conqueror-games)
+// server.js (Conqueror-games Replit version)
 
 import express from "express";
 import http from "http";
@@ -6,23 +6,24 @@ import { Server as SocketIO } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Normalize directory paths
+// Normalize __dirname on Replit
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Create server
+// Express app and HTTP server
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIO(server);
 
-// Serve static files from Conqueror-games (including game.html, modules, etc.)
-app.use(express.static(path.join(__dirname, ".")));
+// Static file serving (entire directory)
+app.use(express.static(path.join(__dirname)));
 
+// Index route (load your main game page)
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "game.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// Handle lobby and multiplayer messaging
+// Lobby communication via WebSocket
 io.on("connection", (socket) => {
   console.log(`🛰️ Client connected: ${socket.id}`);
 
@@ -41,7 +42,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Launch
+// Launch server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Conqueror server ready at http://localhost:${PORT}`);
