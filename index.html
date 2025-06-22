@@ -4,9 +4,17 @@
   <meta charset="UTF-8" />
   <title>Conqueror Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Use local Leaflet CSS from the libs folder -->
-  <link rel="stylesheet" href="libs/leaflet.css" />
+  
+  <!-- Load Leaflet CSS from the official CDN -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+    integrity="sha256-sA+pjfYGg7bZOh1eTV6sy4AdkVQUPrW1L8O0w2xmN0o="
+    crossorigin=""
+  />
+
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  
   <style>
     html, body {
       margin: 0;
@@ -28,14 +36,12 @@
       justify-content: center;
       z-index: 999;
     }
-
     #loading-screen h1 {
       font-size: 2em;
       margin-bottom: 0.5em;
       color: #00ffd0;
       text-align: center;
     }
-
     #loading-screen .pulse {
       width: 14px;
       height: 14px;
@@ -43,25 +49,11 @@
       background: #00ffcc;
       animation: pulse 1s infinite ease-in-out;
     }
-
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 0.5; }
       50% { transform: scale(1.5); opacity: 1; }
     }
 
-    /* Game Root – full screen container */
-    #game-root {
-      width: 100%;
-      height: 100%;
-      display: none;
-    }
-    
-    /* Map Container */
-    #map {
-      width: 100%;
-      height: 100%;
-    }
-    
     /* Solo Mode Warning */
     #solo-warning {
       position: absolute;
@@ -74,6 +66,19 @@
       font-size: 0.9em;
       border-radius: 8px;
     }
+
+    /* Game Root Container */
+    #game-root {
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+
+    /* Map Container */
+    #map {
+      width: 100%;
+      height: 100%;
+    }
   </style>
 </head>
 <body>
@@ -83,71 +88,63 @@
     <div class="pulse"></div>
   </div>
 
-  <!-- Game Root: Contains the Leaflet Map -->
+  <!-- Game Root: Contains the Map -->
   <div id="game-root">
     <div id="map"></div>
   </div>
 
-  <!-- Notifications -->
+  <!-- Notification Area -->
   <div id="notification"></div>
-  
-  <!-- Socket.IO Library (from CDN) -->
+
+  <!-- Socket.IO Library -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   
-  <!-- Local Leaflet via ES module import will be handled in our module script below -->
+  <!-- Main Script using ES Modules -->
   <script type="module">
-    // Import local Leaflet from the libs folder
+    // Import local Leaflet ES module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
-    
-    // Retrieve lobby code from URL parameters
+
+    // Read lobby parameter from URL
     const params = new URLSearchParams(location.search);
     let lobby = params.get("lobby");
     if (!lobby) {
       lobby = "ROOM-0";
       console.warn("⚠ No lobby code detected. Defaulting to ROOM-0 (Solo Mode).");
-      const soloBanner = document.createElement("div");
-      soloBanner.id = "solo-warning";
-      soloBanner.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
-      document.body.appendChild(soloBanner);
+      const soloWarning = document.createElement("div");
+      soloWarning.id = "solo-warning";
+      soloWarning.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
+      document.body.appendChild(soloWarning);
     }
-    
-    // Establish Socket.IO connection (update URL as needed)
+
+    // Set up your Socket.IO connection (update the URL as needed)
     const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
-    
     socket.on("connect", () => {
-      console.log(`🛰 Connected to server as ${socket.id}`);
+      console.log(`🛰 Connected as ${socket.id}`);
       socket.emit("join-lobby", lobby);
     });
-    
     socket.on("map-update", (data) => {
       console.log("📦 Map update received:", data);
-      if (typeof window.handleMapUpdate === 'function') {
+      if (typeof window.handleMapUpdate === "function") {
         window.handleMapUpdate(data);
       }
     });
-    
     window.socket = socket;
     window.lobbyCode = lobby;
-    
-    // Initialize the Leaflet map
+
+    // Function to initialize and display the Leaflet Map
     function initMap() {
-      // Create the map inside the 'map' div
-      const map = L.map('map').setView([51.505, -0.09], 13);
-      // Add OpenStreetMap tile layer
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      const map = L.map("map").setView([51.505, -0.09], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
-        attribution: '© OpenStreetMap'
+        attribution: "© OpenStreetMap"
       }).addTo(map);
-      // Expose map globally if needed
       window.leafletMap = map;
     }
-    
-    // Load engine.js, then initialize the map
-    import('./engine.js').then(() => {
-      // Hide loading screen and show the game root
+
+    // Load the engine and then initialize the map
+    import("./engine.js").then(() => {
       document.getElementById("loading-screen").style.display = "none";
       document.getElementById("game-root").style.display = "block";
-      // Initialize the Leaflet map
       initMap();
     }).catch(err => {
       console.error("❌ Failed to load engine.js:", err);
