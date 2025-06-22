@@ -5,9 +5,13 @@
   <title>Conqueror Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   
-  <!-- Load Leaflet CSS from the official CDN without crossorigin -->
+  <!-- Load Leaflet CSS from the official CDN -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
   
+  <!-- Load external style.css file -->
+  <link rel="stylesheet" href="style.css" />
+  
+  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   
   <style>
@@ -94,7 +98,7 @@
   <!-- Socket.IO (from CDN) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   
-  <!-- Use local Leaflet module + engine integration -->
+  <!-- Use Local Leaflet Module + Engine Integration -->
   <script type="module">
     // Import local Leaflet ES module from the libs folder
     import * as L from "./libs/leaflet-src.esm.js";
