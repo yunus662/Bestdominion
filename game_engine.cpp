@@ -44,8 +44,12 @@
 #include <random>
 #include <algorithm>
 
-// Embedded Python integration
-#include <Python.h>
+#ifdef __EMSCRIPTEN__
+  // When compiling for WebAssembly, Python integration is disabled.
+#else
+  #include <Python.h>
+#endif
+
 
 // Include C++ module headers (assumed to exist in your repository)
 #include "units.h"           // Should declare: initUnits(), updateUnits(), cleanupUnits()
