@@ -1,0 +1,20 @@
+# CODEOWNERS file for the revised repository
+#
+# This file designates the default code owners for all files in the repository.
+# Lines starting with a '#' are comments.
+#
+# The following entry assigns ownership to the listed GitHub users or teams.
+# Replace the usernames below with your actual maintainers and contributor groups.
+
+# Default code owner for all files
+* @yunus662 @team-leads
+
+# Optionally, specify ownership for particular subdirectories or files:
+# For example, assign review responsibility for assets and configuration files:
+/assets/ @assets-team
+/config/ @config-team
+
+# If you have a dedicated directory for C++ source code, you might specify:
+/revised/ @cpp-devs
+
+# End of CODEOWNERS file
