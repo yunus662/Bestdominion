@@ -1,197 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Conqueror Engine</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <!-- Load Leaflet CSS from CDN -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  
-  <!-- Load your external style.css -->
-  <link rel="stylesheet" href="style.css" />
-  
-  <!-- Load Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-
-  <style>
-    /* Inline fallback styles – ensures basic layout on load */
-    html, body {
-      margin: 0;
-      height: 100%;
-      background: #050c14;
-      font-family: 'Share Tech Mono', monospace;
-      color: #00ffcc;
-      overflow: hidden;
-    }
-    /* Loading Screen Styles */
-    #loading-screen {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: #050c14;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-    }
-    .loading-content {
-      text-align: center;
-    }
-    .spinner {
-      width: 50px;
-      height: 50px;
-      border: 5px solid rgba(0,255,204,0.3);
-      border-top-color: #00ffcc;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 20px auto;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    /* Game Root Container and Map Styles */
-    #game-root {
-      display: none;
-      width: 100%;
-      height: 100%;
-    }
-    #map {
-      width: 100%;
-      height: 100%;
-    }
-    /* Notifications Container */
-    #notification {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.75);
-      color: #00ffcc;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 0.9em;
-      z-index: 2000;
-    }
-  </style>
-</head>
-<body>
-  <!-- Professional Loading Screen -->
-  <div id="loading-screen">
-    <div class="loading-content">
-      <h1>Conqueror Engine</h1>
-      <p>Initializing Tactical Network...</p>
-      <div class="spinner"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Conqueror Engine - Revised</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Link to external stylesheet -->
+    <link rel="stylesheet" href="style.css" />
+    <!-- Google Font for a retro, technical look -->
+    <link
+      href="https://fonts.googleapis.com/css?family=Share+Tech+Mono&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+      <div class="loading-content">
+        <h1>Loading Conqueror Engine...</h1>
+        <p>Please wait while assets are loaded.</p>
+        <div class="spinner"></div>
+      </div>
     </div>
-  </div>
-  
-  <!-- Game Root: Contains the Map -->
-  <div id="game-root">
-    <div id="map"></div>
-  </div>
-  
-  <!-- Notifications Container -->
-  <div id="notification"></div>
-  
-  <!-- Socket.IO (From CDN) -->
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  
-  <!-- Main Script -->
-  <script type="module">
-    console.log("Index.html: Starting up...");
 
-    // Import Leaflet module from local libs folder.
-    import * as L from "./libs/leaflet-src.esm.js";
-    console.log("Leaflet module loaded.");
+    <!-- Main Game Container -->
+    <div id="game-root">
+      <!-- Map container for Leaflet (or fallback map) -->
+      <div id="map"></div>
+    </div>
 
-    // Setup lobby from URL parameters.
-    const params = new URLSearchParams(location.search);
-    let lobby = params.get("lobby");
-    if (!lobby) {
-      lobby = "ROOM-0";
-      console.warn("No lobby code provided. Defaulting to ROOM-0 (Solo Mode).");
-      const soloWarning = document.createElement("div");
-      soloWarning.id = "solo-warning";
-      soloWarning.textContent = "⚠ No lobby code provided. Running in SOLO mode.";
-      document.body.appendChild(soloWarning);
-    }
-  
-    // Establish Socket.IO connection.
-    const socket = io("https://3db21b63-ee56-43d9-877f-e5b68b462df6-00-3s3v6c139aq4b.spock.repl.co/");
-    socket.on("connect", () => {
-      console.log(`Socket.IO: Connected as ${socket.id}`);
-      socket.emit("join-lobby", lobby);
-    });
-    socket.on("map-update", (data) => {
-      console.log("Map update received:", data);
-      if (typeof window.handleMapUpdate === "function") {
-        window.handleMapUpdate(data);
-      }
-    });
-    window.socket = socket;
-    window.lobbyCode = lobby;
+    <!-- Notification Container -->
+    <div id="notification"></div>
 
-    // Fallback: Initialize a basic Leaflet map if no map is initialized by the engine.
-    function initMapFallback() {
-      console.log("Initializing fallback map.");
-      const map = L.map("map").setView([51.505, -0.09], 13);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "© OpenStreetMap"
-      }).addTo(map);
-      window.leafletMap = map;
-    }
-  
-    // Load both WASM modules concurrently: game_engine.wasm and gameplay_stitched.wasm
-    Promise.all([
-      fetch("./game_engine.wasm").then(response => {
-        if (!response.ok) {
-          throw new Error(`Failed to load game_engine.wasm: ${response.statusText}`);
-        }
-        return WebAssembly.instantiateStreaming(response, {
-          env: { abort: () => console.error("game_engine.wasm aborted!") }
-        });
-      }),
-      fetch("./gameplay_stitched.wasm").then(response => {
-        if (!response.ok) {
-          throw new Error(`Failed to load gameplay_stitched.wasm: ${response.statusText}`);
-        }
-        return WebAssembly.instantiateStreaming(response, {
-          env: { abort: () => console.error("gameplay_stitched.wasm aborted!") }
-        });
-      })
-    ]).then(([engineModule, stitchedModule]) => {
-      console.log("Both WASM modules loaded successfully.");
-      // Call main from game_engine.wasm if available.
-      if (engineModule.instance.exports.main) {
-        engineModule.instance.exports.main();
-      } else {
-        console.warn("No main() export found in game_engine.wasm.");
-      }
-      // Call main from gameplay_stitched.wasm if available.
-      if (stitchedModule.instance.exports.main) {
-        stitchedModule.instance.exports.main();
-      } else {
-        console.warn("No main() export found in gameplay_stitched.wasm.");
-      }
-      // Hide the loading screen and display the game root.
-      document.getElementById("loading-screen").style.display = "none";
-      document.getElementById("game-root").style.display = "block";
-      // Initialize fallback map if necessary.
-      if (!window.leafletMap) {
-        initMapFallback();
-      }
-    }).catch(err => {
-      console.error("Error loading WASM modules:", err);
-      document.getElementById("loading-screen").innerHTML =
-        "<h1>Error loading game!</h1><p>Please check the console.</p>";
-      document.getElementById("game-root").style.display = "block";
-      initMapFallback();
-    });
-  
-<script type="module" src="./game-loader.js"></script>
-
-  </script>
-</body>
+    <!-- Main Script: Imports the engine and starts the initialization -->
+    <script type="module">
+      import { initializeGame } from "./engine-import.js";
+      initializeGame().catch((err) =>
+        console.error("Engine initialization error:", err)
+      );
+    </script>
+  </body>
 </html>
