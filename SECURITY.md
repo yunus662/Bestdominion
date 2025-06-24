@@ -23,7 +23,7 @@ If you believe you have discovered a security vulnerability in the Conqueror Eng
 
 2. **Send an Email:**  
    Report the vulnerability by sending an email to:  
-   `security@yourdomain.com`  
+   `woowarey@gmail.com`  
    (Replace this email with your official security reporting email)
 
 3. **Include Required Details:**  
