@@ -1,0 +1,33 @@
+# Build artifacts
+*.o
+*.obj
+*.so
+*.exe
+*.dll
+*.dylib
+*.a
+
+# Emscripten/WebAssembly output files
+*.html
+*.wasm
+*.js
+*.data
+*.mem
+
+# Intermediate build directories
+build/
+dist/
+tmp/
+temp/
+
+# Log files
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor temporary files
+*.swp
+*.swo
+*.tmp
