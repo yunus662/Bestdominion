@@ -1,536 +1,405 @@
-/**************************************************************************************************
- * Conqueror Engine - game_engine.cpp
- * 
- * This is the main entry point for the Conqueror Games project. It integrates every game file:
- * 
- *   C++ Modules:       units.cpp, combat.cpp, buildings.cpp, econ-fixed.cpp, government.cpp,
- *                      events.cpp, infrastructure.cpp, packed_features (implemented in C++).
- * 
- *   Python Modules:    ai.py, diplomacy.py, cities_model.py, government.py, events.py,
- *                      packed-features.py (to be used via embedding).
- * 
- *   JavaScript Assets: cities-global.js, doctrine.js, fog.js, infrastructure.js, notification.js,
- *                      server.js, survey.js, time-engine.js, countries.js.
- * 
- *   JSON and Other:    cities.geo.json, countries.geo.json, lobbies.json.
- * 
- *   Audio/Image:       click.mp3, unit-icon.png
- * 
- * The engine performs the following major tasks:
- *  - Loads required asset files (JSON, etc.).
- *  - Initializes C++ modules via ModuleManager.
- *  - Embeds Python to import high-level game logic.
- *  - Implements several algorithms including A* pathfinding, combat resolution,
- *    and resource allocation.
- *  - Runs a main game loop that periodically updates every module.
- *
- * This file represents over 500 lines of actual code.
- **************************************************************************************************/
-
 #include <iostream>
-#include <fstream>
-#include <sstream>
-#include <string>
 #include <vector>
-#include <map>
 #include <queue>
-#include <chrono>
-#include <thread>
-#include <stdexcept>
-#include <cstdlib>
-#include <ctime>
-#include <mutex>
 #include <cmath>
-#include <random>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <sstream>
+#include <fstream>
+#include <limits>
 #include <algorithm>
-
-#ifdef __EMSCRIPTEN__
-  // When compiling for WebAssembly, Python integration is disabled.
-#else
-  #include <Python.h>
-#endif
-
-
-// Include C++ module headers (assumed to exist in your repository)
-#include "units.h"           // Should declare: initUnits(), updateUnits(), cleanupUnits()
-#include "combat.h"          // Should declare: initCombat(), updateCombat(), cleanupCombat()
-#include "buildings.h"       // Should declare: initBuildings(), updateBuildings(), cleanupBuildings()
-#include "econ_fixed.h"      // Should declare: initEconomy(), updateEconomy(), cleanupEconomy()
-#include "government.h"      // Should declare: initGovernment(), updateGovernment(), cleanupGovernment()
-#include "events.h"          // Should declare: initEvents(), updateEvents(), cleanupEvents()
-#include "infrastructure.h"  // Should declare: initInfrastructure(), updateInfrastructure(), cleanupInfrastructure()
-#include "packed_features.h" // Should declare: initPackedFeatures(), updatePackedFeatures(), cleanupPackedFeatures()
-
+#include <functional>
 using namespace std;
 
-/********************************************
- * Utility Functions
- ********************************************/
-
-// Returns the current timestamp as a formatted string.
+//------------------------------------------------------------------------------
+// Utility Logging
+//------------------------------------------------------------------------------
 string getTimestamp() {
-    time_t now = time(0);
-    tm *ltm = localtime(&now);
-    char buffer[64];
-    snprintf(buffer, sizeof(buffer), "[%04d-%02d-%02d %02d:%02d:%02d]",
-             1900 + ltm->tm_year, ltm->tm_mon + 1, ltm->tm_mday,
-             ltm->tm_hour, ltm->tm_min, ltm->tm_sec);
-    return string(buffer);
+    time_t now = time(nullptr);
+    struct tm *ltm = localtime(&now);
+    char buf[16];
+    sprintf(buf, "[%02d:%02d:%02d]", ltm->tm_hour, ltm->tm_min, ltm->tm_sec);
+    return string(buf);
 }
 
-/********************************************
- * AssetManager Class
- ********************************************/
-// Loads and manages asset files (e.g., JSON configuration, audio, etc.)
-class AssetManager {
-private:
-    map<string, string> assets;
-    mutex assetMutex;
+void logEvent(const string &msg) {
+    cout << getTimestamp() << " " << msg << endl;
+    // EXPAND: Replace with robust file/network logging if desired.
+}
+
+//------------------------------------------------------------------------------
+// Module Abstract Base Class
+//------------------------------------------------------------------------------
+class Module {
 public:
-    // Load an asset file (by reading the entire file into a string)
-    bool loadAsset(const string &filename) {
-        lock_guard<mutex> lock(assetMutex);
-        ifstream infile(filename);
-        if (!infile.good()) {
-            cerr << getTimestamp() << " ERROR: Unable to open asset file: " << filename << endl;
-            return false;
-        }
-        ostringstream oss;
-        oss << infile.rdbuf();
-        assets[filename] = oss.str();
-        cout << getTimestamp() << " Asset loaded: " << filename << endl;
+    virtual bool init() = 0;
+    virtual void update() = 0;
+    virtual void shutdown() = 0;
+    virtual ~Module() {}
+};
+
+//------------------------------------------------------------------------------
+// UnitModule - Manages Units and Pathfinding using A* Algorithm
+//------------------------------------------------------------------------------
+class UnitModule : public Module {
+public:
+    struct Unit {
+        string name;
+        int health;
+        int x, y;
+        int destX, destY;
+        vector<pair<int,int>> path;
+        bool moving;
+        Unit(const string &n, int h, int sx, int sy)
+            : name(n), health(h), x(sx), y(sy), destX(sx), destY(sy), moving(false) {}
+    };
+private:
+    vector<Unit> units;
+    vector<vector<int>> grid; // 0 = free, 1 = obstacle
+    int gridWidth, gridHeight;
+    mutex unitMutex;
+public:
+    bool init() override {
+        // Initialize a grid map (20x20) with an obstacle row in the middle.
+        gridWidth = 20; gridHeight = 20;
+        grid.resize(gridHeight, vector<int>(gridWidth, 0));
+        for (int i = 5; i < 15; i++)
+            grid[10][i] = 1;
+        // Initialize sample units.
+        units.push_back(Unit("Infantry", 100, 1, 1));
+        units.push_back(Unit("Tank", 150, 2, 2));
         return true;
     }
-
-    // Retrieve asset content by filename.
-    string getAsset(const string &filename) {
-        lock_guard<mutex> lock(assetMutex);
-        auto it = assets.find(filename);
-        if (it != assets.end()) {
-            return it->second;
-        }
-        return "";
-    }
-
-    // Load all required assets.
-    void loadAllAssets() {
-        loadAsset("cities.geo.json");
-        loadAsset("countries.geo.json");
-        loadAsset("lobbies.json");
-        // Additional assets (like click.mp3) can be loaded as needed.
-    }
-
-    // List loaded assets (print the first few characters of each asset)
-    void listAssets() {
-        lock_guard<mutex> lock(assetMutex);
-        cout << getTimestamp() << " Listing loaded assets:" << endl;
-        for (const auto &p : assets) {
-            cout << "File: " << p.first << " | Size: " << p.second.size() 
-                 << " bytes | Preview: " << p.second.substr(0, 50) << endl;
-        }
-    }
-};
-
-/********************************************
- * ModuleManager Class
- ********************************************/
-// Handles initialization, periodic updates, and cleanup of all C++ modules.
-class ModuleManager {
-public:
-    bool initModules() {
-        bool success = true;
-        if (!initUnits()) {
-            cerr << getTimestamp() << " ERROR: initUnits() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Units module initialized." << endl;
-        }
-        if (!initCombat()) {
-            cerr << getTimestamp() << " ERROR: initCombat() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Combat module initialized." << endl;
-        }
-        if (!initEconomy()) {
-            cerr << getTimestamp() << " ERROR: initEconomy() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Economy module initialized." << endl;
-        }
-        if (!initBuildings()) {
-            cerr << getTimestamp() << " ERROR: initBuildings() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Buildings module initialized." << endl;
-        }
-        if (!initGovernment()) {
-            cerr << getTimestamp() << " ERROR: initGovernment() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Government module initialized." << endl;
-        }
-        if (!initEvents()) {
-            cerr << getTimestamp() << " ERROR: initEvents() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Events module initialized." << endl;
-        }
-        if (!initInfrastructure()) {
-            cerr << getTimestamp() << " ERROR: initInfrastructure() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Infrastructure module initialized." << endl;
-        }
-        if (!initPackedFeatures()) {
-            cerr << getTimestamp() << " ERROR: initPackedFeatures() failed." << endl;
-            success = false;
-        } else {
-            cout << getTimestamp() << " Packed Features module initialized." << endl;
-        }
-        return success;
-    }
-
-    void updateModules() {
-        updateUnits();
-        updateCombat();
-        updateEconomy();
-        updateBuildings();
-        updateGovernment();
-        updateEvents();
-        updateInfrastructure();
-        updatePackedFeatures();
-    }
-
-    void cleanupModules() {
-        cleanupUnits();
-        cleanupCombat();
-        cleanupEconomy();
-        cleanupBuildings();
-        cleanupGovernment();
-        cleanupEvents();
-        cleanupInfrastructure();
-        cleanupPackedFeatures();
-    }
-};
-
-/********************************************
- * PythonManager Class
- ********************************************/
-// Manages the embedded Python interpreter modules for high-level game logic.
-class PythonManager {
-private:
-    PyObject *diplomacyModule;
-    PyObject *citiesModelModule;
-    PyObject *governmentModule;
-    PyObject *eventsModule;
-public:
-    PythonManager() : diplomacyModule(nullptr), citiesModelModule(nullptr),
-                      governmentModule(nullptr), eventsModule(nullptr) {
-        // Import diplomacy.py
-        PyObject *moduleName = PyUnicode_FromString("diplomacy");
-        diplomacyModule = PyImport_Import(moduleName);
-        Py_DECREF(moduleName);
-        if (!diplomacyModule) {
-            PyErr_Print();
-            cerr << getTimestamp() << " ERROR: Failed to import diplomacy.py" << endl;
-        } else {
-            cout << getTimestamp() << " Python module diplomacy.py imported." << endl;
-        }
-        // Import cities_model.py
-        moduleName = PyUnicode_FromString("cities_model");
-        citiesModelModule = PyImport_Import(moduleName);
-        Py_DECREF(moduleName);
-        if (!citiesModelModule) {
-            PyErr_Print();
-            cerr << getTimestamp() << " ERROR: Failed to import cities_model.py" << endl;
-        } else {
-            cout << getTimestamp() << " Python module cities_model.py imported." << endl;
-        }
-        // Import government.py
-        moduleName = PyUnicode_FromString("government");
-        governmentModule = PyImport_Import(moduleName);
-        Py_DECREF(moduleName);
-        if (!governmentModule) {
-            PyErr_Print();
-            cerr << getTimestamp() << " ERROR: Failed to import government.py" << endl;
-        } else {
-            cout << getTimestamp() << " Python module government.py imported." << endl;
-        }
-        // Import events.py
-        moduleName = PyUnicode_FromString("events");
-        eventsModule = PyImport_Import(moduleName);
-        Py_DECREF(moduleName);
-        if (!eventsModule) {
-            PyErr_Print();
-            cerr << getTimestamp() << " ERROR: Failed to import events.py" << endl;
-        } else {
-            cout << getTimestamp() << " Python module events.py imported." << endl;
-        }
-    }
     
-    ~PythonManager() {
-        if (diplomacyModule) Py_DECREF(diplomacyModule);
-        if (citiesModelModule) Py_DECREF(citiesModelModule);
-        if (governmentModule) Py_DECREF(governmentModule);
-        if (eventsModule) Py_DECREF(eventsModule);
-    }
-    
-    // Update Python modules by calling their update functions, if available.
-    void updateModules() {
-        if (diplomacyModule) {
-            PyObject *func = PyObject_GetAttrString(diplomacyModule, "update_diplomacy");
-            if (func && PyCallable_Check(func)) {
-                PyObject *result = PyObject_CallObject(func, nullptr);
-                if (!result) {
-                    PyErr_Print();
-                    cerr << getTimestamp() << " ERROR: update_diplomacy() failed." << endl;
-                } else {
-                    Py_DECREF(result);
-                }
-            }
-            Py_XDECREF(func);
-        }
-        if (citiesModelModule) {
-            PyObject *func = PyObject_GetAttrString(citiesModelModule, "update_cities");
-            if (func && PyCallable_Check(func)) {
-                PyObject *result = PyObject_CallObject(func, nullptr);
-                if (!result) {
-                    PyErr_Print();
-                    cerr << getTimestamp() << " ERROR: update_cities() failed." << endl;
-                } else {
-                    Py_DECREF(result);
-                }
-            }
-            Py_XDECREF(func);
-        }
-        // Additional updates for government and events can be added similarly.
-    }
-};
-
-/********************************************
- * Algorithm Implementations
- ********************************************/
-// A* Pathfinding Algorithm
-struct Node {
-    int x, y;
-    float f, g, h;
-    Node* parent;
-    Node(int ix, int iy) : x(ix), y(iy), f(0), g(0), h(0), parent(nullptr) {}
-};
-
-struct NodeComparator {
-    bool operator()(const Node* a, const Node* b) const {
-        return a->f > b->f;
-    }
-};
-
-float heuristic(int x1, int y1, int x2, int y2) {
-    return abs(x1 - x2) + abs(y1 - y2);
-}
-
-vector<pair<int, int>> aStarSearch(const vector<vector<bool>>& grid, int startX, int startY, int endX, int endY) {
-    vector<pair<int, int>> path;
-    int rows = grid.size();
-    if (rows == 0) return path;
-    int cols = grid[0].size();
-    
-    priority_queue<Node*, vector<Node*>, NodeComparator> openSet;
-    vector<vector<bool>> closed(rows, vector<bool>(cols, false));
-    
-    Node* start = new Node(startX, startY);
-    start->g = 0;
-    start->h = heuristic(startX, startY, endX, endY);
-    start->f = start->g + start->h;
-    openSet.push(start);
-    
-    vector<Node*> allNodes;
-    allNodes.push_back(start);
-    
-    vector<pair<int,int>> directions = { {0,1}, {1,0}, {0,-1}, {-1,0} };
-    Node* endNode = nullptr;
-    
-    while(!openSet.empty()){
-        Node* current = openSet.top();
-        openSet.pop();
+    // A* pathfinding algorithm: computes a path from (startX, startY) to (goalX, goalY).
+    vector<pair<int,int>> computePath(int startX, int startY, int goalX, int goalY) {
+        struct Node {
+            int x, y;
+            float g, h, f;
+            int parentX, parentY;
+        };
+        auto heuristic = [&](int x, int y) {
+            return static_cast<float>(abs(x - goalX) + abs(y - goalY));
+        };
+        vector<vector<bool>> closed(gridHeight, vector<bool>(gridWidth, false));
+        vector<vector<Node>> nodeDetails(gridHeight, vector<Node>(gridWidth));
+        auto cmp = [](const Node &a, const Node &b) {
+            return a.f > b.f;
+        };
+        priority_queue<Node, vector<Node>, decltype(cmp)> open(cmp);
         
-        if(current->x == endX && current->y == endY){
-            endNode = current;
-            break;
-        }
+        // Initialize the start node.
+        Node startNode;
+        startNode.x = startX; startNode.y = startY;
+        startNode.g = 0.0f; startNode.h = heuristic(startX, startY);
+        startNode.f = startNode.h;
+        startNode.parentX = -1; startNode.parentY = -1;
+        open.push(startNode);
+        nodeDetails[startY][startX] = startNode;
         
-        closed[current->x][current->y] = true;
-        
-        for(auto d : directions){
-            int nx = current->x + d.first;
-            int ny = current->y + d.second;
-            if(nx < 0 || ny < 0 || nx >= rows || ny >= cols || !grid[nx][ny] || closed[nx][ny])
+        bool pathFound = false;
+        while (!open.empty()) {
+            Node current = open.top();
+            open.pop();
+            int cx = current.x, cy = current.y;
+            if (closed[cy][cx])
                 continue;
-            float tentative_g = current->g + 1.0f;
-            Node* neighbor = new Node(nx, ny);
-            neighbor->g = tentative_g;
-            neighbor->h = heuristic(nx, ny, endX, endY);
-            neighbor->f = neighbor->g + neighbor->h;
-            neighbor->parent = current;
-            openSet.push(neighbor);
-            allNodes.push_back(neighbor);
+            closed[cy][cx] = true;
+            if (cx == goalX && cy == goalY) {
+                pathFound = true;
+                break;
+            }
+            // Check neighbors (up, down, left, right)
+            int dx[4] = {0, 0, -1, 1};
+            int dy[4] = {-1, 1, 0, 0};
+            for (int dir = 0; dir < 4; dir++) {
+                int nx = cx + dx[dir];
+                int ny = cy + dy[dir];
+                if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight)
+                    continue;
+                if (grid[ny][nx] == 1) continue; // obstacle
+                if (closed[ny][nx]) continue;
+                float gNew = current.g + 1.0f;
+                if (gNew < nodeDetails[ny][nx].g || nodeDetails[ny][nx].f == 0) {
+                    nodeDetails[ny][nx].x = nx;
+                    nodeDetails[ny][nx].y = ny;
+                    nodeDetails[ny][nx].g = gNew;
+                    nodeDetails[ny][nx].h = heuristic(nx, ny);
+                    nodeDetails[ny][nx].f = nodeDetails[ny][nx].g + nodeDetails[ny][nx].h;
+                    nodeDetails[ny][nx].parentX = cx;
+                    nodeDetails[ny][nx].parentY = cy;
+                    open.push(nodeDetails[ny][nx]);
+                }
+            }
         }
-    }
-    
-    if(endNode){
-        Node* current = endNode;
-        while(current){
-            path.push_back({current->x, current->y});
-            current = current->parent;
+        vector<pair<int,int>> path;
+        if (!pathFound)
+            return path;
+        // Backtrack from goal to start
+        int x = goalX, y = goalY;
+        while (!(x == startX && y == startY)) {
+            path.push_back({x,y});
+            int px = nodeDetails[y][x].parentX;
+            int py = nodeDetails[y][x].parentY;
+            x = px; y = py;
         }
         reverse(path.begin(), path.end());
+        return path;
     }
     
-    for(auto node : allNodes)
-        delete node;
+    void update() override {
+        lock_guard<mutex> lock(unitMutex);
+        // For each unit that is moving, follow the path.
+        for (auto &unit : units) {
+            if (unit.moving && !unit.path.empty()) {
+                auto nextStep = unit.path.front();
+                unit.path.erase(unit.path.begin());
+                unit.x = nextStep.first;
+                unit.y = nextStep.second;
+                if (unit.path.empty())
+                    unit.moving = false;
+                logEvent("Unit " + unit.name + " moved to (" + to_string(unit.x) + "," + to_string(unit.y) + ")");
+            }
+        }
+    }
     
-    return path;
-}
-
-// Combat Resolution Algorithm: Determines outcome based on random chance.
-string computeCombatOutcome(const string& attacker, const string& defender) {
-    random_device rd;
-    mt19937 gen(rd());
-    uniform_int_distribution<> dis(0, 100);
-    int roll = dis(gen);
-    if(roll < 45)
-        return attacker + " defeats " + defender;
-    else if(roll < 90)
-        return defender + " repels " + attacker;
-    else
-        return "Stalemate between " + attacker + " and " + defender;
-}
-
-// Resource Allocation Algorithm: Distributes total resources proportionally.
-vector<float> allocateResources(float total, const vector<float>& weights) {
-    vector<float> allocations;
-    float sum = 0.0f;
-    for(auto w : weights)
-        sum += w;
-    if(sum == 0.0f) {
-        allocations.resize(weights.size(), 0);
-        return allocations;
+    void shutdown() override {
+        lock_guard<mutex> lock(unitMutex);
+        units.clear();
     }
-    for(auto w : weights)
-        allocations.push_back((w / sum) * total);
-    return allocations;
-}
-
-/********************************************
- * GameEngine Class
- ********************************************/
-class GameEngine {
-private:
-    AssetManager assetManager;
-    ModuleManager moduleManager;
-    PythonManager pythonManager;
-    bool running;
-    int iterations;
-    const int maxIterations;
-    mutex engineMutex;
-public:
-    GameEngine() : running(false), iterations(0), maxIterations(50) {}
-
-    // Initialize engine: load assets and initialize modules.
-    bool initialize() {
-        lock_guard<mutex> lock(engineMutex);
-        cout << getTimestamp() << " Initializing Game Engine." << endl;
-        assetManager.loadAllAssets();
-        assetManager.listAssets();
-        if (!moduleManager.initModules()) {
-            cerr << getTimestamp() << " ERROR: C++ module initialization failed." << endl;
-            return false;
+    
+    void addUnit(const Unit &unit) {
+        lock_guard<mutex> lock(unitMutex);
+        units.push_back(unit);
+    }
+    
+    void setDestinationForUnit(int index, int destX, int destY) {
+        lock_guard<mutex> lock(unitMutex);
+        if (index < 0 || index >= units.size())
+            return;
+        Unit &unit = units[index];
+        unit.destX = destX;
+        unit.destY = destY;
+        unit.path = computePath(unit.x, unit.y, destX, destY);
+        unit.moving = !unit.path.empty();
+    }
+    
+    void printUnits() {
+        lock_guard<mutex> lock(unitMutex);
+        cout << "== Unit Status ==" << endl;
+        for (const auto &unit : units) {
+            cout << unit.name << " Health:" << unit.health
+                 << " Pos: (" << unit.x << "," << unit.y << ")"
+                 << " Dest: (" << unit.destX << "," << unit.destY << ")"
+                 << endl;
         }
-        running = true;
-        return true;
-    }
-
-    // Main game loop: update modules, run algorithms periodically.
-    void run() {
-        cout << getTimestamp() << " Starting main game loop." << endl;
-        while(running && iterations < maxIterations) {
-            cout << getTimestamp() << " Game loop iteration: " << iterations << endl;
-            moduleManager.updateModules();
-            pythonManager.updateModules();
-            
-            // Demonstrate A* pathfinding every 10 iterations.
-            if(iterations % 10 == 0) {
-                vector<vector<bool>> grid(10, vector<bool>(10, true));
-                grid[3][4] = false; grid[4][4] = false; grid[5][4] = false;
-                vector<pair<int,int>> path = aStarSearch(grid, 0, 0, 9, 9);
-                cout << getTimestamp() << " A* Pathfinding result: ";
-                for(auto &p : path)
-                    cout << "(" << p.first << "," << p.second << ") ";
-                cout << endl;
-            }
-            
-            // Demonstrate combat resolution every 5 iterations.
-            if(iterations % 5 == 0) {
-                string result = computeCombatOutcome("NationA", "NationB");
-                cout << getTimestamp() << " Combat Outcome: " << result << endl;
-            }
-            
-            // Demonstrate resource allocation every 7 iterations.
-            if(iterations % 7 == 0) {
-                float totalRes = 1000000.0f;
-                vector<float> weights = {2.0f, 3.0f, 5.0f, 4.0f};
-                vector<float> alloc = allocateResources(totalRes, weights);
-                cout << getTimestamp() << " Resource Allocation: ";
-                for(size_t i = 0; i < alloc.size(); i++)
-                    cout << "Project" << i << ": " << alloc[i] << " ";
-                cout << endl;
-            }
-            
-            iterations++;
-            this_thread::sleep_for(chrono::milliseconds(1000));
-        }
-        cout << getTimestamp() << " Main game loop terminated after " << iterations << " iterations." << endl;
-    }
-
-    // Cleanup engine: call cleanup functions on all modules.
-    void cleanup() {
-        lock_guard<mutex> lock(engineMutex);
-        cout << getTimestamp() << " Cleaning up Game Engine." << endl;
-        moduleManager.cleanupModules();
-        running = false;
     }
 };
 
-/********************************************
- * Main Function
- ********************************************/
-int main() {
-    try {
-        cout << getTimestamp() << " Launching Conqueror Engine..." << endl;
-        
-        // Initialize the embedded Python interpreter.
-        Py_Initialize();
-        if (!Py_IsInitialized()) {
-            throw runtime_error("Failed to initialize Python interpreter");
-        }
-        cout << getTimestamp() << " Python interpreter initialized." << endl;
-        
-        GameEngine engine;
-        if(!engine.initialize()){
-            cerr << getTimestamp() << " ERROR: Engine initialization failed." << endl;
-            Py_Finalize();
-            return EXIT_FAILURE;
-        }
-        
-        engine.run();
-        engine.cleanup();
-        
-        Py_Finalize();
-        cout << getTimestamp() << " Conqueror Engine terminated gracefully." << endl;
-    } catch(const exception &ex) {
-        cerr << getTimestamp() << " Exception: " << ex.what() << endl;
-        return EXIT_FAILURE;
+//------------------------------------------------------------------------------
+// CombatModule - Simulates Combat (Placeholder)
+//------------------------------------------------------------------------------
+class CombatModule : public Module {
+    mutex combatMutex;
+public:
+    bool init() override {
+        // EXPAND: Initialize combat systems, load weapons, etc.
+        return true;
     }
-    return EXIT_SUCCESS;
+    void update() override {
+        lock_guard<mutex> lock(combatMutex);
+        // EXPAND: Implement combat logic between units (use proximity, damage calculations, etc.).
+    }
+    void shutdown() override {
+        // EXPAND: Cleanup combat-related resources.
+    }
+};
+
+//------------------------------------------------------------------------------
+// EconomyModule - Tracks Economy Value
+//------------------------------------------------------------------------------
+class EconomyModule : public Module {
+    int economyValue;
+    mutex econMutex;
+public:
+    bool init() override {
+        economyValue = 1000;
+        return true;
+    }
+    void update() override {
+        lock_guard<mutex> lock(econMutex);
+        // EXPAND: Include complex economic models, resource generation and consumption.
+        economyValue += 1; // Simple increase.
+        if (economyValue % 100 == 0)
+            logEvent("Economy value updated: " + to_string(economyValue));
+    }
+    void shutdown() override {
+        // EXPAND: Save/cleanup economic state.
+    }
+};
+
+//------------------------------------------------------------------------------
+// ChatModule - Handles Text Chat via Console Input in a Separate Thread
+//------------------------------------------------------------------------------
+class ChatModule : public Module {
+    vector<string> messages;
+    mutex chatMutex;
+    thread inputThread;
+    atomic<bool> moduleRunning;
+public:
+    bool init() override {
+        moduleRunning.store(true);
+        inputThread = thread([this]() { this->chatInput(); });
+        return true;
+    }
+    void chatInput() {
+        cout << "Chat Module Initialized. Type messages (type 'exit' to finish chat):" << endl;
+        string line;
+        while (moduleRunning.load()) {
+            if (getline(cin, line)) {
+                if (line == "exit") {
+                    moduleRunning.store(false);
+                    break;
+                }
+                // EXPAND: Replace with network transmission if needed.
+                addMessage(line);
+            } else {
+                this_thread::sleep_for(chrono::milliseconds(50));
+            }
+        }
+    }
+    void addMessage(const string &msg) {
+        lock_guard<mutex> lock(chatMutex);
+        messages.push_back(msg);
+    }
+    void update() override {
+        lock_guard<mutex> lock(chatMutex);
+        if (!messages.empty()) {
+            cout << "=== Chat Messages ===" << endl;
+            for (auto &msg : messages) {
+                cout << msg << endl;
+            }
+            cout << "=====================" << endl;
+            messages.clear();
+        }
+    }
+    void shutdown() override {
+        moduleRunning.store(false);
+        if (inputThread.joinable())
+            inputThread.join();
+    }
+};
+
+//------------------------------------------------------------------------------
+// MiscModule - Additional Diagnostics, Event Scheduling, etc.
+//------------------------------------------------------------------------------
+class MiscModule : public Module {
+public:
+    bool init() override {
+        return true;
+    }
+    void update() override {
+        // EXPAND: Add diagnostics, error handling, event scheduling, etc.
+        static int counter = 0;
+        counter++;
+        if (counter % 250 == 0)
+            logEvent("MiscModule Diagnostics: All systems nominal.");
+    }
+    void shutdown() override {}
+};
+
+//------------------------------------------------------------------------------
+// GameEngine - Orchestrates All Modules
+//------------------------------------------------------------------------------
+class GameEngine {
+public:
+    vector<Module*> modules; // Made public for ease of access for demonstration.
+private:
+    atomic<bool> engineRunning;
+    thread mainLoopThread;
+    mutex engineMutex;
+public:
+    GameEngine() { engineRunning.store(false); }
+    
+    bool init() {
+        // Instantiate modules.
+        modules.push_back(new UnitModule());
+        modules.push_back(new CombatModule());
+        modules.push_back(new EconomyModule());
+        modules.push_back(new ChatModule());
+        modules.push_back(new MiscModule());
+        // Initialize each module.
+        for (Module* mod : modules) {
+            if (!mod->init()) {
+                logEvent("Error initializing a module.");
+                return false;
+            }
+        }
+        engineRunning.store(true);
+        return true;
+    }
+    
+    void run() {
+        mainLoopThread = thread(&GameEngine::mainLoop, this);
+    }
+    
+    void mainLoop() {
+        int iteration = 0;
+        while (engineRunning.load()) {
+            for (Module* mod : modules)
+                mod->update();
+            // Call UnitModule printing status every 100 iterations.
+            if (iteration % 100 == 0) {
+                UnitModule* um = dynamic_cast<UnitModule*>(modules[0]);
+                if (um) {
+                    um->printUnits();
+                }
+            }
+            this_thread::sleep_for(chrono::milliseconds(33)); // ~30 FPS
+            iteration++;
+        }
+    }
+    
+    void shutdown() {
+        engineRunning.store(false);
+        if (mainLoopThread.joinable())
+            mainLoopThread.join();
+        for (Module* mod : modules) {
+            mod->shutdown();
+            delete mod;
+        }
+        modules.clear();
+    }
+};
+
+//------------------------------------------------------------------------------
+// Main Function
+//------------------------------------------------------------------------------
+int main() {
+    srand(static_cast<unsigned int>(time(nullptr)));
+    logEvent("Game Engine Starting...");
+    
+    GameEngine engine;
+    if (!engine.init()) {
+        logEvent("Engine initialization failed.");
+        return 1;
+    }
+    
+    // Example: Set a destination for the first unit.
+    UnitModule* unitMod = dynamic_cast<UnitModule*>(engine.modules[0]);
+    if (unitMod) {
+        unitMod->setDestinationForUnit(0, 15, 15);
+    }
+    
+    engine.run();
+    
+    // Let the engine run for 10 seconds.
+    this_thread::sleep_for(chrono::seconds(10));
+    
+    engine.shutdown();
+    
+    logEvent("Game Engine Terminated.");
+    return 0;
 }
-
-
