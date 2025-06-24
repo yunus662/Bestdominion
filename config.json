@@ -1,0 +1,35 @@
+{
+  "title": "Conqueror Engine",
+  "lobbyDefault": "ROOM-0",
+  "settings": {
+    "volume": 0.8,
+    "difficulty": "medium",
+    "graphics": {
+      "resolution": "1920x1080",
+      "quality": "high"
+    },
+    "controls": {
+      "keyboard": true,
+      "mouseSensitivity": 1.2
+    }
+  },
+  "map": {
+    "defaultView": [51.505, -0.09],
+    "defaultZoom": 13,
+    "tileLayer": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    "attribution": "© OpenStreetMap contributors"
+  },
+  "network": {
+    "socketUrl": "https://example.com",
+    "retryInterval": 5000
+  },
+  "resources": [
+    "assets/units.dat",
+    "assets/levels.xml",
+    "assets/lobby.json",
+    "assets/payments.cfg",
+    "assets/profile.ini",
+    "assets/chat.txt",
+    "assets/ai_rules.dat"
+  ]
+}
