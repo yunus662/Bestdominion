@@ -1,27 +1,28 @@
 #!/bin/bash
 # build.sh - Build script for Conqueror Engine WebAssembly modules
 
-# Exit immediately if a command exits with a non-zero status
-set -e
+set -euo pipefail
 
-# Create the output directory if it does not exist
+# Constants
 OUTPUT_DIR="dist"
-mkdir -p ${OUTPUT_DIR}
+SRC_FILES=(
+  "game_engine.cpp"
+  "gameplay_stitched.cpp"
+)
 
-echo "Building game_engine.cpp..."
-emcc game_engine.cpp -O2 \
-  -s WASM=1 \
-  -s USE_PTHREADS=1 \
-  -s "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']" \
-  --preload-file assets \
-  -o ${OUTPUT_DIR}/game_engine.html
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
 
-echo "Building gameplay_stitched.cpp..."
-emcc gameplay_stitched.cpp -O2 \
-  -s WASM=1 \
-  -s USE_PTHREADS=1 \
-  -s "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']" \
-  --preload-file assets \
-  -o ${OUTPUT_DIR}/gameplay_stitched.html
+# Build loop
+for src_file in "${SRC_FILES[@]}"; do
+  base_name=$(basename "$src_file" .cpp)
+  echo "Building $src_file..."
+  emcc "$src_file" -O2 \
+    -s WASM=1 \
+    -s USE_PTHREADS=1 \
+    -s "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']" \
+    --preload-file assets \
+    -o "$OUTPUT_DIR/${base_name}.html"
+done
 
-echo "Build complete. Output files are in the '${OUTPUT_DIR}' directory."
+echo "Build complete. Output files are in '$OUTPUT_DIR'"
