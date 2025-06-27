@@ -1,0 +1,28 @@
+{
+  "name": "revised-engine",
+  "version": "1.0.0",
+  "description": "A high-performance, modular nation-building engine built with C++ and compiled to WebAssembly using Emscripten.",
+  "main": "index.html",
+  "scripts": {
+    "build": "sh build.sh",
+    "start": "sh run.sh",
+    "test": "echo \"No tests specified\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yunus662/conqueror-games/tree/revised"
+  },
+  "keywords": [
+    "game-engine",
+    "emscripten",
+    "wasm",
+    "conqueror",
+    "revised"
+  ],
+  "author": "Your Name <woowarey@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yunus662/tree/revised/issues"
+  },
+  "homepage": "https://yunus662.github.io/conquerest/"
+}

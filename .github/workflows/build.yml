@@ -1,0 +1,43 @@
+name: Build and Test Conqueror Engine
+
+on:
+  push:
+    branches: [ revised ]
+  pull_request:
+    branches: [ revised ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Emscripten
+        uses: shivammathur/setup-emscripten@v1
+        with:
+          emsdk-version: 'latest'
+
+      - name: Build Engine Modules using build.sh
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Verify Build Artifacts
+        run: |
+          if [ -f "dist/game_engine.wasm" ] && [ -f "dist/gameplay_stitched.wasm" ]; then
+            echo "Build produced required WASM artifacts.";
+          else
+            echo "ERROR: Missing build artifacts." >&2;
+            exit 1;
+          fi
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: revised-engine-build
+          path: |
+            dist/game_engine.*
+            dist/gameplay_stitched.*
