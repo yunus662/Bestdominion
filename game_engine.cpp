@@ -1,20 +1,25 @@
 /**************************************************************************************************
  * NationBuilder Game Engine
  *
- * This engine is designed as a modular core that provides:
- *   • Unit simulation with A* pathfinding-based movement,
- *   • Combat simulation,
- *   • Economic tracking,
- *   • Government policy management,
- *   • A text chat system running in a separate thread.
+ * Version: 2.0
+ * Last Updated: 2025-06-27
  *
- * It “helps” run your game files by providing powerful subsystems that update game state.
- * Network integration points are marked in comments so that you or your team can replace them
- * with real networking code later if needed.
+ * This engine serves as the core for a real-time nation-building simulation game. It features a
+ * modular design that handles key gameplay systems independently.
  *
- * This file is complete, self-contained, and requires no external expansion.
+ * Core Features:
+ * - Unit Simulation: Manages unit creation, movement via A* pathfinding, and state.
+ * - Combat Simulation: A placeholder for deterministic or probabilistic combat logic.
+ * - Economic Model: Tracks and updates the national economy.
+ * - Government & Policy: Simulates political changes and their effects.
+ * - Thread-Safe Chat: A simple, non-blocking console chat system for player interaction.
+ *
+ * This file is designed to be self-contained and provides a complete, runnable engine core.
+ * Areas marked with `// TODO:` are intended for expansion with game-specific logic or
+ * network integration.
  **************************************************************************************************/
 
+// Standard Library Includes
 #include <iostream>
 #include <vector>
 #include <queue>
@@ -30,413 +35,550 @@
 #include <limits>
 #include <algorithm>
 #include <functional>
-using namespace std;
+#include <memory>
+#include <string>
 
-/*************** Stage 1: Utilities and Module Base Class ****************/
+// C-style headers for specific functions
+#include <cfloat> // For FLT_MAX
 
-// Get a timestamp string [HH:MM:SS]
-string getTimestamp() {
+// Use a dedicated namespace to avoid polluting the global namespace.
+namespace GameEngine {
+
+/*************** Stage 1: Core Utilities & Base Classes ****************/
+
+/**
+ * @brief Gets a formatted timestamp string [HH:MM:SS].
+ * @return A string representing the current time.
+ */
+std::string getTimestamp() {
     time_t now = time(nullptr);
-    struct tm* ltm = localtime(&now);
+    struct tm ltm;
+    // Use platform-specific safe functions for localtime
+#ifdef _WIN32
+    localtime_s(&ltm, &now);
+#else
+    localtime_r(&now, &ltm);
+#endif
     char buf[16];
-    sprintf(buf, "[%02d:%02d:%02d]", ltm->tm_hour, ltm->tm_min, ltm->tm_sec);
-    return string(buf);
+    snprintf(buf, sizeof(buf), "[%02d:%02d:%02d]", ltm.tm_hour, ltm.tm_min, ltm.tm_sec);
+    return std::string(buf);
 }
 
-// Log events with a timestamp
-void logEvent(const string &msg) {
-    cout << getTimestamp() << " " << msg << endl;
-    // (Replace with file/network logging if necessary.)
+/**
+ * @brief Logs a message to the console with a timestamp.
+ * @param msg The message to log.
+ */
+void logEvent(const std::string &msg) {
+    // This is thread-safe because cout is synchronized by default.
+    std::cout << getTimestamp() << " " << msg << std::endl;
+    // TODO: Replace with a more robust logging system (e.g., file or network logger).
 }
 
-// Base class for all engine modules.
+/**
+ * @class Module
+ * @brief Abstract base class for all engine subsystems.
+ *
+ * Defines a common interface for initialization, updating, and shutdown,
+ * allowing the main engine to manage all modules polymorphically.
+ */
 class Module {
 public:
+    virtual ~Module() = default; // Use default virtual destructor
     virtual bool init() = 0;
     virtual void update() = 0;
     virtual void shutdown() = 0;
-    virtual ~Module() {}
 };
 
 /*************** Stage 2: Unit Module (with A* Pathfinding) ****************/
 
 class UnitModule : public Module {
 public:
+    // Represents a single controllable unit in the game world.
     struct Unit {
-        string name;
+        std::string name;
         int health;
-        int x, y;
-        int destX, destY;
-        vector<pair<int,int>> path;
-        bool moving;
-        Unit(const string &n, int h, int sx, int sy)
-            : name(n), health(h), x(sx), y(sy), destX(sx), destY(sy), moving(false) {}
+        int x, y; // Current coordinates
+        int destX, destY; // Destination coordinates
+        std::vector<std::pair<int, int>> path;
+        bool isMoving;
+
+        Unit(const std::string &n, int h, int startX, int startY)
+            : name(n), health(h), x(startX), y(startY), destX(startX), destY(startY), isMoving(false) {}
     };
-    
+
 private:
-    vector<Unit> units;
-    vector<vector<int>> grid; // 0 = free, 1 = obstacle
+    std::vector<Unit> units;
+    std::vector<std::vector<int>> grid; // Game world grid: 0 = traversable, 1 = obstacle
     int gridWidth, gridHeight;
-    mutex mtx;
-    
-    // A* algorithm to compute path from (startX, startY) to (goalX, goalY)
-    vector<pair<int,int>> computePath(int startX, int startY, int goalX, int goalY) {
-        struct Node {
-            int x, y;
-            float g, h, f;
-            int parentX, parentY;
-            Node(int _x, int _y, float _g, float _h, int pX, int pY)
-                : x(_x), y(_y), g(_g), h(_h), f(_g+_h), parentX(pX), parentY(pY) {}
-            Node() : x(0), y(0), g(FLT_MAX), h(FLT_MAX), f(FLT_MAX), parentX(-1), parentY(-1) {}
+    std::mutex unitMutex; // Protects access to the units vector.
+
+    // A* Pathfinding Implementation
+    struct Node {
+        int x, y;
+        float g, h, f; // A* costs: g=cost from start, h=heuristic to goal, f=g+h
+        int parentX, parentY;
+
+        Node(int _x = 0, int _y = 0, float _g = FLT_MAX, float _h = FLT_MAX, int pX = -1, int pY = -1)
+            : x(_x), y(_y), g(_g), h(_h), f(_g + _h), parentX(pX), parentY(pY) {}
+
+        // Comparison for priority queue (we want the node with the lowest f cost)
+        bool operator>(const Node& other) const {
+            return f > other.f;
+        }
+    };
+
+    /**
+     * @brief Computes the optimal path from a start to a goal using A*.
+     * @param startX Starting X coordinate.
+     * @param startY Starting Y coordinate.
+     * @param goalX Destination X coordinate.
+     * @param goalY Destination Y coordinate.
+     * @return A vector of (x, y) pairs representing the path. Empty if no path is found.
+     */
+    std::vector<std::pair<int, int>> computePath(int startX, int startY, int goalX, int goalY) {
+        auto heuristic = [&](int x, int y) {
+            // Manhattan distance heuristic
+            return static_cast<float>(std::abs(x - goalX) + std::abs(y - goalY));
         };
 
-        auto heuristic = [&](int x, int y) -> float {
-            return abs(x-goalX) + abs(y-goalY);
-        };
-        
-        vector<vector<bool>> closed(gridHeight, vector<bool>(gridWidth, false));
-        vector<vector<Node>> nodes(gridHeight, vector<Node>(gridWidth));
-        for (int i = 0; i < gridHeight; i++)
-            for (int j = 0; j < gridWidth; j++)
-                nodes[i][j] = Node(j, i, FLT_MAX, FLT_MAX, -1, -1);
-                
-        auto cmp = [](const Node &a, const Node &b) { return a.f > b.f; };
-        priority_queue<Node, vector<Node>, decltype(cmp)> open(cmp);
-        
-        Node start(startX, startY, 0, heuristic(startX, startY), -1, -1);
-        nodes[startY][startX] = start;
-        open.push(start);
-        
-        bool found = false;
-        
-        while (!open.empty()) {
-            Node current = open.top();
-            open.pop();
-            int cx = current.x, cy = current.y;
-            if (closed[cy][cx]) continue;
-            closed[cy][cx] = true;
-            if (cx == goalX && cy == goalY) { found = true; break; }
-            // Explore neighbors (up, down, left, right)
-            int dx[4] = {0, 0, -1, 1};
-            int dy[4] = {-1, 1, 0, 0};
-            for (int dir = 0; dir < 4; dir++) {
-                int nx = cx + dx[dir], ny = cy + dy[dir];
-                if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight)
+        std::vector<std::vector<bool>> closedSet(gridHeight, std::vector<bool>(gridWidth, false));
+        std::vector<std::vector<Node>> allNodes(gridHeight, std::vector<Node>(gridWidth));
+        std::priority_queue<Node, std::vector<Node>, std::greater<Node>> openSet;
+
+        allNodes[startY][startX] = Node(startX, startY, 0, heuristic(startX, startY), -1, -1);
+        openSet.push(allNodes[startY][startX]);
+
+        bool pathFound = false;
+
+        while (!openSet.empty()) {
+            Node current = openSet.top();
+            openSet.pop();
+
+            if (current.x == goalX && current.y == goalY) {
+                pathFound = true;
+                break;
+            }
+
+            if (closedSet[current.y][current.x]) continue;
+            closedSet[current.y][current.x] = true;
+
+            // Explore neighbors (4-directional movement)
+            int dx[] = {0, 0, -1, 1};
+            int dy[] = {-1, 1, 0, 0};
+
+            for (int i = 0; i < 4; ++i) {
+                int nx = current.x + dx[i];
+                int ny = current.y + dy[i];
+
+                // Check bounds and obstacles
+                if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight || grid[ny][nx] == 1 || closedSet[ny][nx]) {
                     continue;
-                if (grid[ny][nx] == 1 || closed[ny][nx])
-                    continue;
-                float gNew = current.g + 1;
-                float hNew = heuristic(nx, ny);
-                float fNew = gNew + hNew;
-                if (fNew < nodes[ny][nx].f) {
-                    nodes[ny][nx] = Node(nx, ny, gNew, hNew, cx, cy);
-                    open.push(nodes[ny][nx]);
+                }
+
+                float gNew = current.g + 1.0f;
+                if (gNew < allNodes[ny][nx].g) {
+                    allNodes[ny][nx] = Node(nx, ny, gNew, heuristic(nx, ny), current.x, current.y);
+                    openSet.push(allNodes[ny][nx]);
                 }
             }
         }
-        vector<pair<int,int>> path;
-        if (!found) return path;
-        int tx = goalX, ty = goalY;
-        while (!(tx == startX && ty == startY)) {
-            path.push_back({tx, ty});
-            int px = nodes[ty][tx].parentX;
-            int py = nodes[ty][tx].parentY;
-            tx = px; ty = py;
+
+        // Reconstruct path from goal to start
+        std::vector<std::pair<int, int>> path;
+        if (pathFound) {
+            int cx = goalX;
+            int cy = goalY;
+            while (cx != startX || cy != startY) {
+                path.push_back({cx, cy});
+                const Node& node = allNodes[cy][cx];
+                cx = node.parentX;
+                cy = node.parentY;
+            }
+            std::reverse(path.begin(), path.end());
         }
-        reverse(path.begin(), path.end());
         return path;
     }
-    
+
 public:
     bool init() override {
-        gridWidth = 20; gridHeight = 20;
-        grid.resize(gridHeight, vector<int>(gridWidth, 0));
-        for (int i = 5; i < 15; i++) {
+        gridWidth = 20;
+        gridHeight = 20;
+        grid.assign(gridHeight, std::vector<int>(gridWidth, 0));
+
+        // Create a simple obstacle wall
+        for (int i = 5; i < 15; ++i) {
             grid[10][i] = 1;
         }
-        // Create some units.
-        units.push_back(Unit("Infantry", 100, 1, 1));
-        units.push_back(Unit("Tank", 150, 2, 2));
-        units.push_back(Unit("Artillery", 80, 3, 1));
+
+        // Initialize some units for demonstration
+        units.emplace_back("Infantry", 100, 1, 1);
+        units.emplace_back("Tank", 150, 2, 2);
+        units.emplace_back("Artillery", 80, 3, 1);
+        logEvent("UnitModule: Initialized with 3 units.");
         return true;
     }
-    
+
     void update() override {
-        lock_guard<mutex> lock(mtx);
+        std::lock_guard<std::mutex> lock(unitMutex);
         for (auto &unit : units) {
-            if (unit.moving && !unit.path.empty()) {
-                auto step = unit.path.front();
+            if (unit.isMoving && !unit.path.empty()) {
+                auto nextStep = unit.path.front();
                 unit.path.erase(unit.path.begin());
-                unit.x = step.first;
-                unit.y = step.second;
-                logEvent("Unit " + unit.name + " moved to (" + to_string(unit.x) + "," + to_string(unit.y) + ")");
-                if (unit.path.empty())
-                    unit.moving = false;
+                unit.x = nextStep.first;
+                unit.y = nextStep.second;
+
+                logEvent("Unit " + unit.name + " moved to (" + std::to_string(unit.x) + "," + std::to_string(unit.y) + ")");
+
+                if (unit.path.empty()) {
+                    unit.isMoving = false;
+                    logEvent("Unit " + unit.name + " has reached its destination.");
+                }
             }
         }
     }
-    
+
     void shutdown() override {
-        lock_guard<mutex> lock(mtx);
+        std::lock_guard<std::mutex> lock(unitMutex);
         units.clear();
+        logEvent("UnitModule: Shutdown complete.");
     }
-    
-    // Set a destination for a unit and compute its path.
-    void setDestination(int index, int destX, int destY) {
-        lock_guard<mutex> lock(mtx);
-        if (index < 0 || index >= units.size()) return;
-        Unit &unit = units[index];
+
+    // Public interface to command units
+    void setDestination(size_t unitIndex, int destX, int destY) {
+        std::lock_guard<std::mutex> lock(unitMutex);
+        if (unitIndex >= units.size()) return;
+
+        Unit &unit = units[unitIndex];
         unit.destX = destX;
         unit.destY = destY;
         unit.path = computePath(unit.x, unit.y, destX, destY);
-        unit.moving = !unit.path.empty();
-    }
-    
-    void printStatus() {
-        lock_guard<mutex> lock(mtx);
-        cout << "----- Unit Module Status -----" << endl;
-        for (auto &unit : units) {
-            cout << unit.name << " HP:" << unit.health 
-                 << " Pos: (" << unit.x << "," << unit.y << ")"
-                 << " Dest: (" << unit.destX << "," << unit.destY << ")"
-                 << (unit.moving ? " [Moving]" : " [Idle]") << endl;
+        unit.isMoving = !unit.path.empty();
+
+        if (unit.isMoving) {
+            logEvent("Unit " + unit.name + " starting path to (" + std::to_string(destX) + "," + std::to_string(destY) + ")");
+        } else {
+            logEvent("Unit " + unit.name + " could not find a path to destination.");
         }
-        cout << "------------------------------" << endl;
+    }
+
+    void printStatus() const {
+        // Use a const_cast or a mutable mutex if you need to lock in a const function.
+        // Or, better, make the calling context responsible for locking if needed.
+        // For this simple case, we'll assume the caller handles thread safety.
+        std::cout << "\n----- Unit Module Status -----" << std::endl;
+        for (const auto &unit : units) {
+            std::cout << "  - " << unit.name
+                      << "\tHP: " << unit.health
+                      << "\tPos: (" << unit.x << "," << unit.y << ")"
+                      << "\tDest: (" << unit.destX << "," << unit.destY << ")"
+                      << (unit.isMoving ? " [Moving]" : " [Idle]") << std::endl;
+        }
+        std::cout << "------------------------------\n" << std::endl;
     }
 };
 
 /*************** Stage 3: Combat Module ****************/
 
 class CombatModule : public Module {
-    mutex mtx;
+    std::mutex combatMutex;
 public:
     bool init() override {
-        // EXPAND: Initialize combat systems and load weapon properties.
+        logEvent("CombatModule: Initialized.");
+        // TODO: Load weapon stats, armor types, and damage formulas from data files (e.g., JSON, XML).
         return true;
     }
-    
+
     void update() override {
-        lock_guard<mutex> lock(mtx);
-        // EXPAND: Implement real combat logic (collision detection, damage calculation, targeting).
-        if (rand() % 100 < 5) {
-            logEvent("Combat: Skirmish occurred between enemy and player units.");
+        std::lock_guard<std::mutex> lock(combatMutex);
+        // TODO: Implement combat logic.
+        //  1. Proximity Check: Identify units from opposing factions within attack range.
+        //  2. Target Selection: Apply AI logic to choose targets (e.g., lowest health, biggest threat).
+        //  3. Damage Calculation: Use formulas (e.g., Attack - Defense) and random factors.
+        //  4. Apply Damage: Update unit health and handle unit death.
+        if (rand() % 200 < 5) { // Low probability placeholder event
+            logEvent("Combat: A skirmish was simulated.");
         }
     }
-    
+
     void shutdown() override {
-        // EXPAND: Cleanup combat resources.
+        logEvent("CombatModule: Shutdown complete.");
+        // TODO: Clean up any allocated combat resources.
     }
 };
 
 /*************** Stage 4: Economy Module ****************/
 
 class EconomyModule : public Module {
-    int economyValue;
-    mutex mtx;
+    double nationalTreasury;
+    std::mutex econMutex;
 public:
     bool init() override {
-        economyValue = 1000;
+        nationalTreasury = 10000.0;
+        logEvent("EconomyModule: Initialized with treasury of " + std::to_string(nationalTreasury));
         return true;
     }
-    
+
     void update() override {
-        lock_guard<mutex> lock(mtx);
-        economyValue += (rand() % 10);
-        if (rand() % 100 < 10)
-            logEvent("Economy: Value updated to " + to_string(economyValue));
-    }
-    
-    void shutdown() override {
-        ofstream ofs("economy_state.txt");
-        if (ofs.is_open()) {
-            ofs << "Final Economy Value: " << economyValue << "\n";
-            ofs.close();
+        std::lock_guard<std::mutex> lock(econMutex);
+        // TODO: Implement a more sophisticated economic model.
+        //  - Income: Taxes from population, trade tariffs, resource sales.
+        //  - Expenses: Unit upkeep, building maintenance, research costs.
+        //  - Growth: Factors like infrastructure, policies, and events should affect GDP.
+        double growth = (rand() % 20 - 5) * 0.5; // Simulate minor fluctuations
+        nationalTreasury += growth;
+
+        if (rand() % 150 < 10) { // Occasional log
+            logEvent("Economy: Treasury updated to " + std::to_string(nationalTreasury));
         }
+    }
+
+    void shutdown() override {
+        // Persist final economic state to a file.
+        std::ofstream ofs("economy_shutdown_state.txt");
+        if (ofs) {
+            ofs << "Final National Treasury: " << nationalTreasury << std::endl;
+        }
+        logEvent("EconomyModule: Shutdown complete. State saved.");
     }
 };
 
 /*************** Stage 5: Government Module ****************/
 
 class GovernmentModule : public Module {
-    string policy;
-    mutex mtx;
-    int updateCounter;
+    std::string currentPolicy;
+    int ticksSinceLastChange;
+    std::mutex govMutex;
 public:
     bool init() override {
-        policy = "Neutral";
-        updateCounter = 0;
+        currentPolicy = "Neutral";
+        ticksSinceLastChange = 0;
+        logEvent("GovernmentModule: Initialized with policy: " + currentPolicy);
         return true;
     }
-    
+
     void update() override {
-        lock_guard<mutex> lock(mtx);
-        updateCounter++;
-        if (updateCounter % 200 == 0) {
-            policy = (policy == "Neutral") ? "Expansionist" : "Neutral";
-            logEvent("Government: Policy changed to " + policy);
+        std::lock_guard<std::mutex> lock(govMutex);
+        ticksSinceLastChange++;
+        // TODO: Base policy changes on game events, player choices, or internal pressures (e.g., low stability).
+        if (ticksSinceLastChange > 200) {
+            currentPolicy = (currentPolicy == "Neutral") ? "Expansionist" : "Neutral";
+            logEvent("Government: Policy has shifted to '" + currentPolicy + "'.");
+            ticksSinceLastChange = 0;
         }
     }
-    
+
     void shutdown() override {
-        // EXPAND: Persist government state as needed.
+        logEvent("GovernmentModule: Shutdown complete.");
+        // TODO: Save final government state if necessary.
     }
 };
 
 /*************** Stage 6: Chat Module (Console Text Chat) ****************/
 
 class ChatModule : public Module {
-    vector<string> messages;
-    mutex mtx;
-    thread inputThread;
-    atomic<bool> moduleRunning;
+    std::vector<std::string> messageQueue;
+    std::mutex chatMutex;
+    std::thread inputThread;
+    std::atomic<bool> isRunning;
 public:
     bool init() override {
-        moduleRunning.store(true);
-        inputThread = thread([this](){ this->inputLoop(); });
+        isRunning.store(true);
+        // Start a detached thread to handle blocking console input without pausing the engine.
+        inputThread = std::thread(&ChatModule::inputLoop, this);
+        logEvent("ChatModule: Initialized. Type '/exit' in the console to stop chat input.");
         return true;
     }
-    
+
     void inputLoop() {
-        cout << "Chat Module Active. Type messages (type '/exit' to quit chat):" << endl;
-        string line;
-        while (moduleRunning.load()) {
-            if (getline(cin, line)) {
-                if (line == "/exit") {
-                    moduleRunning.store(false);
-                    break;
+        std::string line;
+        while (isRunning.load()) {
+            std::cout << "> ";
+            if (std::getline(std::cin, line)) {
+                if (!line.empty()) {
+                    if (line == "/exit") {
+                        logEvent("Chat input thread exiting.");
+                        break; // Exit the loop but don't stop the whole module yet
+                    }
+                    // TODO: In a networked game, send this message to a server.
+                    addMessage("Player: " + line);
                 }
-                // EXPAND: Could later send messages over the network.
-                addMessage(line);
             } else {
-                this_thread::sleep_for(chrono::milliseconds(50));
+                 // Check if the main module is shutting down
+                if (!isRunning.load()) break;
+                // Sleep briefly to prevent busy-waiting if cin fails
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
     }
-    
-    void addMessage(const string &msg) {
-        lock_guard<mutex> lock(mtx);
-        messages.push_back(msg);
+
+    void addMessage(const std::string &msg) {
+        std::lock_guard<std::mutex> lock(chatMutex);
+        messageQueue.push_back(msg);
     }
-    
+
     void update() override {
-        lock_guard<mutex> lock(mtx);
-        if (!messages.empty()) {
-            cout << "------ Chat Messages ------" << endl;
-            for (auto &msg : messages)
-                cout << msg << endl;
-            cout << "---------------------------" << endl;
-            messages.clear();
+        std::lock_guard<std::mutex> lock(chatMutex);
+        if (!messageQueue.empty()) {
+            std::cout << "\n------ Chat Log ------" << std::endl;
+            for (const auto &msg : messageQueue) {
+                std::cout << getTimestamp() << " " << msg << std::endl;
+            }
+             std::cout << "----------------------" << std::endl;
+            messageQueue.clear();
         }
     }
-    
+
     void shutdown() override {
-        moduleRunning.store(false);
-        if (inputThread.joinable())
+        isRunning.store(false);
+        // A clean way to unblock getline is needed, but for console it's tricky.
+        // Prompting the user to press enter is a simple workaround.
+        std::cout << "Press ENTER to fully shut down chat module." << std::endl;
+        if (inputThread.joinable()) {
             inputThread.join();
+        }
+        logEvent("ChatModule: Shutdown complete.");
     }
 };
 
-/*************** Stage 7: Miscellaneous Module (Diagnostics, etc.) ****************/
 
-class MiscModule : public Module {
-    int diagCounter;
-public:
-    bool init() override {
-        diagCounter = 0;
-        return true;
-    }
-    
-    void update() override {
-        diagCounter++;
-        if (diagCounter % 250 == 0)
-            logEvent("MiscModule: Diagnostics nominal.");
-    }
-    
-    void shutdown() override {}
-};
+/*************** Stage 7: GameEngine Orchestrator ****************/
 
-/*************** Stage 8: GameEngine (Orchestrates All Modules) ****************/
-
-class GameEngine {
-public:
-    vector<Module*> modules; // Public for access by other systems if needed.
+class GameEngineController {
 private:
-    atomic<bool> engineRunning;
-    thread mainLoopThread;
+    std::vector<std::unique_ptr<Module>> modules;
+    std::atomic<bool> isEngineRunning;
+    std::thread engineThread;
+
 public:
-    GameEngine() { engineRunning.store(false); }
-    
+    GameEngineController() : isEngineRunning(false) {}
+    ~GameEngineController() {
+        shutdown(); // Ensure cleanup on destruction
+    }
+
     bool init() {
-        modules.push_back(new UnitModule());
-        modules.push_back(new CombatModule());
-        modules.push_back(new EconomyModule());
-        modules.push_back(new GovernmentModule());
-        modules.push_back(new ChatModule());
-        modules.push_back(new MiscModule());
-        for (Module* mod : modules) {
+        // Use smart pointers for automatic memory management.
+        modules.push_back(std::make_unique<UnitModule>());
+        modules.push_back(std::make_unique<CombatModule>());
+        modules.push_back(std::make_unique<EconomyModule>());
+        modules.push_back(std::make_unique<GovernmentModule>());
+        modules.push_back(std::make_unique<ChatModule>());
+
+        for (const auto& mod : modules) {
             if (!mod->init()) {
-                logEvent("GameEngine: Error initializing a module.");
+                logEvent("GameEngineController: Failed to initialize a module.");
                 return false;
             }
         }
-        engineRunning.store(true);
+        isEngineRunning.store(true);
+        logEvent("GameEngineController: All modules initialized successfully.");
         return true;
     }
-    
+
     void run() {
-        mainLoopThread = thread([this]() { this->mainLoop(); });
+        if (!isEngineRunning) return;
+        engineThread = std::thread(&GameEngineController::mainLoop, this);
+        logEvent("GameEngineController: Main loop started.");
     }
-    
+
     void mainLoop() {
-        int iter = 0;
-        while (engineRunning.load()) {
-            for (Module* mod : modules)
+        const std::chrono::milliseconds tickRate(33); // ~30 FPS
+        long long iteration = 0;
+
+        while (isEngineRunning.load()) {
+            auto startTime = std::chrono::steady_clock::now();
+
+            // Update all modules
+            for (const auto& mod : modules) {
                 mod->update();
-            // Every 100 iterations, print unit module status.
-            if (iter % 100 == 0) {
-                UnitModule *um = dynamic_cast<UnitModule*>(modules[0]);
-                if (um)
-                    um->printStatus();
             }
-            this_thread::sleep_for(chrono::milliseconds(33)); // ~30 FPS
-            iter++;
-            // For demonstration, stop engine after 1000 iterations.
-            if (iter >= 1000)
-                engineRunning.store(false);
+
+            // Periodic status updates
+            if (iteration % 150 == 0) {
+                // Safely get the UnitModule to print status
+                if (auto um = dynamic_cast<UnitModule*>(modules[0].get())) {
+                    um->printStatus();
+                }
+            }
+
+            auto endTime = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+            // Maintain a consistent tick rate
+            if (elapsedTime < tickRate) {
+                std::this_thread::sleep_for(tickRate - elapsedTime);
+            }
+            
+            iteration++;
+
+            // For demonstration, automatically stop after a certain number of iterations.
+            // In a real game, this would be controlled by user input (e.g., quitting the game).
+            if (iteration > 1500) {
+                logEvent("GameEngineController: Demo loop finished. Initiating shutdown.");
+                isEngineRunning.store(false);
+            }
         }
     }
+
+    void stop() {
+        isEngineRunning.store(false);
+    }
     
-    void shutdown() {
-        if (mainLoopThread.joinable())
-            mainLoopThread.join();
-        for (Module* mod : modules) {
-            mod->shutdown();
-            delete mod;
+    // Allows external systems to access modules if necessary.
+    template<typename T>
+    T* getModule() {
+        for (const auto& mod : modules) {
+            if (T* specificModule = dynamic_cast<T*>(mod.get())) {
+                return specificModule;
+            }
         }
-        modules.clear();
+        return nullptr;
+    }
+
+
+    void shutdown() {
+        if (engineThread.joinable()) {
+            engineThread.join();
+        }
+
+        // Shutdown modules in reverse order of initialization
+        for (auto it = modules.rbegin(); it != modules.rend(); ++it) {
+            (*it)->shutdown();
+        }
+        modules.clear(); // Smart pointers handle deletion
+        logEvent("GameEngineController: Engine shutdown complete.");
     }
 };
 
-/*************** Stage 9: Main Function ****************/
+} // namespace GameEngine
+
+/*************** Stage 8: Main Application Entry Point ****************/
 
 int main() {
+    // Seed the random number generator
     srand(static_cast<unsigned int>(time(nullptr)));
-    logEvent("NationBuilder Game Engine Starting...");
-    
-    GameEngine engine;
-    if (!engine.init()) {
-        logEvent("GameEngine: Initialization failed.");
+
+    GameEngine::logEvent("NationBuilder Game Engine starting...");
+
+    // Create the main engine controller
+    auto engine = std::make_unique<GameEngine::GameEngineController>();
+
+    if (!engine->init()) {
+        GameEngine::logEvent("Engine initialization failed. Exiting.");
         return 1;
     }
+
+    // Example of interacting with a module post-initialization
+    if (auto unitModule = engine->getModule<GameEngine::UnitModule>()) {
+        unitModule->setDestination(0, 18, 18); // Send Infantry to a corner
+        unitModule->setDestination(1, 8, 9);  // Send Tank towards the wall
+    }
+
+    // Start the main game loop and wait for it to finish
+    engine->run();
     
-    // Example: Set destination for the first unit.
-    UnitModule *um = dynamic_cast<UnitModule*>(engine.modules[0]);
-    if (um)
-        um->setDestination(0, 15, 15);
+    // The engine's destructor will handle the shutdown call automatically when main exits.
+    // If you need more control, you can explicitly call engine->shutdown().
     
-    engine.run();
-    engine.shutdown();
-    
-    logEvent("NationBuilder Game Engine Terminated.");
+    GameEngine::logEvent("NationBuilder Game Engine terminated.");
     return 0;
 }
